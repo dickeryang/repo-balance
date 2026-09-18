@@ -1,0 +1,12 @@
+[package]
+name = "rb-app"
+description = "仓衡 Tauri 2 壳（占位）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+rb-core = { path = "../rb-core" }
+serde.workspace = true
+serde_json.workspace = true

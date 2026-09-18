@@ -1,0 +1,18 @@
+[package]
+name = "rb-core"
+description = "仓衡检查器内核：零 tauri 依赖，可独立编译为 CLI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+git2.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[[bin]]
+name = "rb"
+path = "src/bin/rb.rs"

@@ -1,3 +1,7 @@
+# 仓衡 workspace
+/target/
+demo-repo/
+
 # Rust / Cargo
 /target/
 **/*.rs.bk
