@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import * as ipc from '../ipc/commands'
+import { onScanDone, onScanProgress, onScanCancelled, onScanError } from '../ipc/events'
+import type { UnlistenFn } from '@tauri-apps/api/event'
 import type { RepoSnapshot, ScanReport, CheckerFeedRow, ProgressEvent } from '../types/models'
 
 export const useScanStore = defineStore('scan', () => {
@@ -15,6 +17,12 @@ export const useScanStore = defineStore('scan', () => {
   const isCancelled = ref(false)
   const activeFilter = ref('all')
   const expandedFindings = ref<Set<string>>(new Set())
+
+  // 扫描代际号：每次开启新扫描自增；事件回调按注册时捕获的代际过滤，
+  // 迟到的陈旧事件（上一轮扫描的 scan-done 等）直接丢弃。
+  let scanToken = 0
+  // 当前扫描的事件监听注销器：startScan 时注册，结束/重置时注销。
+  let unlisteners: Promise<UnlistenFn>[] = []
 
   const filteredFindings = computed(() => {
     if (!report.value) return []
@@ -54,15 +62,63 @@ export const useScanStore = defineStore('scan', () => {
     }
   }
 
+  /** 注销当前扫描的事件监听。 */
+  function unlistenScanEvents() {
+    unlisteners.forEach((p) => p.then((fn) => fn()).catch(() => {}))
+    unlisteners = []
+  }
+
+  /** 注册本轮扫描的事件监听，回调按代际号过滤陈旧事件。 */
+  function listenScanEvents(token: number) {
+    unlistenScanEvents()
+    const stale = () => token !== scanToken
+    unlisteners = [
+      // scan-done：写入报告并跳转报告页
+      onScanDone((r) => {
+        if (stale()) return
+        unlistenScanEvents()
+        report.value = r
+        isScanning.value = false
+        currentView.value = 3
+      }),
+      // scan-progress：更新进度
+      onScanProgress((p) => {
+        if (stale()) return
+        progress.value = p
+      }),
+      // scan-cancelled：用户取消，导航到报告页展示已取消状态
+      onScanCancelled((error) => {
+        if (stale()) return
+        unlistenScanEvents()
+        isCancelled.value = true
+        isScanning.value = false
+        repoError.value = error
+        currentView.value = 3
+      }),
+      // scan-error：扫描失败，回接入页并展示错误
+      onScanError((error) => {
+        if (stale()) return
+        unlistenScanEvents()
+        isScanning.value = false
+        repoError.value = error
+        currentView.value = 1
+      }),
+    ]
+  }
+
   async function startScan(path: string) {
     isScanning.value = true
     isCancelled.value = false
     report.value = null
     progress.value = null
     checkerFeed.value = []
+    const token = ++scanToken
+    listenScanEvents(token)
     try {
       await ipc.startScan(path)
     } catch (e) {
+      if (token !== scanToken) return
+      unlistenScanEvents()
       isScanning.value = false
       repoError.value = String(e)
       currentView.value = 1
@@ -75,6 +131,7 @@ export const useScanStore = defineStore('scan', () => {
       isCancelled.value = true
     } catch (e) {
       console.error('取消扫描失败:', e)
+      isCancelled.value = false
     }
   }
 
@@ -103,6 +160,8 @@ export const useScanStore = defineStore('scan', () => {
   }
 
   function resetToConnect() {
+    scanToken++ // 使任何在途扫描的迟到事件全部失效
+    unlistenScanEvents()
     currentView.value = 1
     selectedPath.value = null
     repoInfo.value = null
@@ -116,17 +175,17 @@ export const useScanStore = defineStore('scan', () => {
     expandedFindings.value = new Set()
   }
 
+  /** 更换仓库：取消在途扫描、清空全部状态并回到接入页。 */
+  async function switchRepo() {
+    if (isScanning.value) {
+      await cancelScan()
+      isScanning.value = false
+    }
+    resetToConnect()
+  }
+
   function setCurrentView(view: 1 | 2 | 3) {
     currentView.value = view
-  }
-
-  function setReport(r: ScanReport) {
-    report.value = r
-    isScanning.value = false
-  }
-
-  function setProgress(p: ProgressEvent) {
-    progress.value = p
   }
 
   function setCheckerFeed(feed: CheckerFeedRow[]) {
@@ -152,12 +211,11 @@ export const useScanStore = defineStore('scan', () => {
     startScan,
     cancelScan,
     exportReport,
+    switchRepo,
     setFilter,
     toggleFinding,
     resetToConnect,
     setCurrentView,
-    setReport,
-    setProgress,
     setCheckerFeed,
   }
 })

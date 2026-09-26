@@ -18,3 +18,9 @@ export async function onScanCancelled(callback: (error: string) => void): Promis
     callback(event.payload)
   })
 }
+
+export async function onScanError(callback: (error: string) => void): Promise<UnlistenFn> {
+  return listen<string>('scan-error', (event) => {
+    callback(event.payload)
+  })
+}

@@ -13,14 +13,14 @@ pub struct Scores {
 }
 
 impl Scores {
-    /// 简单加权总分。
+    /// 简单加权总分（各维度均值，u32 中间计算避免 u8 溢出）。
     pub fn total(&self) -> u8 {
-        (self.structure
-            + self.history
-            + self.branches
-            + self.deps
-            + self.security)
-            / 5
+        ((self.structure as u32
+            + self.history as u32
+            + self.branches as u32
+            + self.deps as u32
+            + self.security as u32)
+            / 5) as u8
     }
 }
 

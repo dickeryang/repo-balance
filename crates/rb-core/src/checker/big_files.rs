@@ -81,7 +81,7 @@ impl Checker for BigFilesChecker {
 
         let mut findings = Vec::new();
         for (path, &size) in &workdir {
-            if size > threshold {
+            if size >= threshold {
                 findings.push(workdir_finding(path, size, hist_groups.get(path)));
             }
         }
@@ -154,9 +154,9 @@ fn human_size(bytes: u64) -> String {
     }
 }
 
-/// 提交 hash 前 8 位（不足则取全部）。
+/// 提交 hash 前 8 个字符（不足则取全部；按字符切片避免 UTF-8 panic）。
 fn short_hash(id: &str) -> &str {
-    &id[..8.min(id.len())]
+    id.get(..id.char_indices().nth(8).map(|(i, _)| i).unwrap_or(id.len())).unwrap_or(id)
 }
 #[cfg(test)]
 #[allow(non_snake_case)]
@@ -281,7 +281,7 @@ mod tests {
         let git = GitRepo::open(t.path()).unwrap();
         let snap = git.snapshot().unwrap();
         let workdir = git.workdir_file_metas().unwrap();
-        let history = git.history_blob_metas(64).unwrap();
+        let history = git.history_blob_metas(64, None).unwrap();
         let config = ScanConfig {
             big_file_threshold: 1,
         };
@@ -301,15 +301,19 @@ mod tests {
 
     // ===== 7.3 纯计算边界（口径与契约）=====
 
-    /// ⑤ 工作区文件恰好等于阈值 → 不命中（严格 `>` 口径）。
+    /// ⑤ 工作区文件恰好等于阈值 → 命中（统一 `>=` 口径）。
     #[test]
-    fn 阈值边界_工作区文件恰好等于阈值_不命中() {
+    fn 阈值边界_工作区文件恰好等于阈值_命中() {
         let snap = zero_snapshot();
         let config = ScanConfig {
             big_file_threshold: 100,
         };
         let ctx = ctx_with(&snap, &config, vec![file_meta("a.txt", 100)], vec![]);
-        assert!(BigFilesChecker.check(&ctx).is_empty());
+        let findings = BigFilesChecker.check(&ctx);
+        assert!(
+            findings.iter().any(|f| f.id.contains("a.txt") && f.severity == Severity::Warning),
+            "工作区文件恰好等于阈值应命中 Warning"
+        );
     }
 
     /// ⑥ 历史 blob 恰好等于阈值 → 命中（严格 `>=` 口径）。

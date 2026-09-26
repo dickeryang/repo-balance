@@ -1,11 +1,13 @@
 //! IPC 命令层：五条命令桥接前端与 rb-core。
 //!
-//! stub 阶段：start_scan 异步包装同步 engine::scan，一次性 emit scan-done；
-//! cancel_scan 设置 AtomicBool 但 engine::scan 不消费（待 D3-2 落地后切换）。
+//! start_scan 异步包装同步 engine::scan，完成后 emit scan-done；
+//! cancel_scan 设置 AtomicBool，引擎在批次边界消费该标志并提前返回，
+//! 扫描结束后 emit scan-cancelled 通知前端。
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 
@@ -34,10 +36,8 @@ pub fn repo_info(path: String) -> Result<RepoSnapshotDto, String> {
     Ok(RepoSnapshotDto::from(snap))
 }
 
-/// 启动扫描（stub：异步包装同步 scan，完成后一次性 emit scan-done）。
-///
-/// stub 语义：无中间 scan-progress 事件；
-/// 待 D3-2 scan_engine 落地后切换为 ScanEngine::run + progress 回调实时 emit。
+/// 启动扫描：异步包装同步 scan（spawn_blocking 避免占死 tokio worker），
+/// 完成后 emit scan-done；失败 emit scan-error（与用户取消事件分离）。
 #[tauri::command]
 pub async fn start_scan(
     app: tauri::AppHandle,
@@ -47,21 +47,63 @@ pub async fn start_scan(
     let path_buf = PathBuf::from(&path);
     rb_core::git::GitRepo::open(&path_buf).map_err(map_error)?;
 
+    if state.is_scanning() {
+        return Err("已有扫描正在进行，请先等待完成或取消".to_owned());
+    }
     state.reset();
     state.set_scanning(true);
 
     let app_handle = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut registry = rb_core::checker::CheckerRegistry::new();
-        let _ = registry.register(Box::new(rb_core::checker::BigFilesChecker));
+    let cancel_flag = state.cancel_flag();
+    let cancel_flag_arc = Arc::clone(&cancel_flag);
 
-        match rb_core::engine::scan::scan(&path_buf, &registry) {
-            Ok(report) => {
+    tauri::async_runtime::spawn(async move {
+        // 进度事件：分阶段 emit scan-progress（扫描前 → 历史采集中 → 扫描完成）。
+        // 历史采集是主要耗时阶段，细粒度进度需要引擎内部回调（后续迭代）。
+        let _ = app_handle.emit(
+            "scan-progress",
+            serde_json::json!({"stage": "初始化", "done": 0, "total": 0, "cancelled": false}),
+        );
+
+        let app_for_blocking = app_handle.clone();
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            let _ = app_for_blocking.emit(
+                "scan-progress",
+                serde_json::json!({"stage": "历史采集", "done": 0, "total": 0, "cancelled": false}),
+            );
+            let mut registry = rb_core::checker::CheckerRegistry::new();
+            let _ = registry.register(Box::new(rb_core::checker::BigFilesChecker));
+            let report = rb_core::engine::scan::scan_with_cancel(
+                &path_buf,
+                &registry,
+                Some(cancel_flag_arc.as_ref()),
+            )?;
+            let _ = app_for_blocking.emit(
+                "scan-progress",
+                serde_json::json!({"stage": "完成", "done": 1, "total": 1, "cancelled": false}),
+            );
+            Ok(report)
+        })
+        .await;
+
+        let state = app_handle.state::<ScanState>();
+        let was_cancelled = state.is_cancelled();
+        state.set_scanning(false);
+
+        match result {
+            Ok(Ok(report)) => {
                 let dto = ScanReportDto::from(report);
-                let _ = app_handle.emit("scan-done", dto);
+                if was_cancelled {
+                    let _ = app_handle.emit("scan-cancelled", "扫描已取消".to_owned());
+                } else {
+                    let _ = app_handle.emit("scan-done", dto);
+                }
+            }
+            Ok(Err(e)) => {
+                let _ = app_handle.emit("scan-error", map_error(e));
             }
             Err(e) => {
-                let _ = app_handle.emit("scan-cancelled", map_error(e));
+                let _ = app_handle.emit("scan-error", e.to_string());
             }
         }
     });

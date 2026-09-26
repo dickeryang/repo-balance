@@ -1,0 +1,50 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c2438"/>
+      <stop offset="1" stop-color="#0f1420"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6ea3ff"/>
+      <stop offset="1" stop-color="#4f8cff"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e6ebf5"/>
+      <stop offset="1" stop-color="#b9c4dc"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded-square background -->
+  <rect x="0" y="0" width="1024" height="1024" rx="230" fill="url(#bg)"/>
+  <rect x="24" y="24" width="976" height="976" rx="214" fill="none" stroke="#2a3550" stroke-width="10"/>
+
+  <!-- ============ Git branch motif (bottom-left, beneath the scale) ============ -->
+  <path d="M 220 880
+           C 220 740, 240 600, 330 520
+           C 340 500, 370 480, 398 462"
+        fill="none" stroke="url(#accent)" stroke-width="48" stroke-linecap="round"/>
+  <circle cx="220" cy="880" r="60" fill="#0f1420" stroke="url(#accent)" stroke-width="38"/>
+  <circle cx="398" cy="462" r="50" fill="#0f1420" stroke="#4fd07a" stroke-width="36"/>
+
+  <!-- ============ Balance scale (仓衡的"衡") — on top, right side ============ -->
+  <g>
+    <!-- column -->
+    <line x1="640" y1="360" x2="640" y2="780" stroke="url(#beam)" stroke-width="38" stroke-linecap="round"/>
+    <!-- base -->
+    <line x1="530" y1="800" x2="750" y2="800" stroke="url(#beam)" stroke-width="38" stroke-linecap="round"/>
+    <!-- tilted beam -->
+    <line x1="470" y1="380" x2="810" y2="330" stroke="url(#beam)" stroke-width="30" stroke-linecap="round"/>
+    <!-- pivot -->
+    <circle cx="640" cy="355" r="32" fill="url(#beam)"/>
+
+    <!-- left pan (low = heavy) -->
+    <line x1="470" y1="380" x2="470" y2="490" stroke="url(#beam)" stroke-width="14"/>
+    <circle cx="470" cy="380" r="16" fill="url(#beam)"/>
+    <path d="M 392 560 A 80 80 0 0 0 548 560 Z" fill="url(#beam)"/>
+
+    <!-- right pan (high = light) -->
+    <line x1="810" y1="330" x2="810" y2="430" stroke="url(#beam)" stroke-width="14"/>
+    <circle cx="810" cy="330" r="16" fill="url(#beam)"/>
+    <path d="M 732 500 A 80 80 0 0 0 888 500 Z" fill="url(#beam)"/>
+  </g>
+</svg>

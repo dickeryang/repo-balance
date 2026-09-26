@@ -15,6 +15,9 @@ const store = useScanStore()
     </div>
     <div class="spacer"></div>
     <div class="local-badge">🔒 纯本地零网络</div>
+    <button v-if="store.selectedPath" class="btn ghost switch-btn" @click="store.switchRepo()">
+      🔄 更换仓库
+    </button>
     <div class="steps">
       <div class="step" :class="{ active: store.currentView === 1, done: store.currentView > 1 }">① 接入仓库</div>
       <div class="step-arrow">→</div>
@@ -69,6 +72,10 @@ const store = useScanStore()
   border-radius: 999px;
   padding: 4px 12px;
   background: rgba(88, 196, 163, 0.08);
+}
+.switch-btn {
+  font-size: 12px;
+  padding: 5px 12px;
 }
 .steps {
   display: flex;

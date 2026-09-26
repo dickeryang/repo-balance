@@ -1,18 +1,24 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "repo-balance",
+  "productName": "仓衡",
   "version": "0.1.0",
-  "identifier": "com.repo-balance.app",
+  "identifier": "com.repobalance.desktop",
   "build": {
     "frontendDist": "../../ui/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "cd ../../ui && npm run dev",
-    "beforeBuildCommand": "cd ../../ui && npm run build"
+    "beforeDevCommand": {
+      "script": "npm run dev",
+      "cwd": "../../ui"
+    },
+    "beforeBuildCommand": {
+      "script": "npm run build",
+      "cwd": "../../ui"
+    }
   },
   "app": {
     "windows": [
       {
-        "title": "仓衡 RepoBalance · Git 仓库健康度体检台",
+        "title": "仓衡 · Git 仓库健康度体检台",
         "width": 1200,
         "height": 800,
         "resizable": true,

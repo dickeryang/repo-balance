@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
-
-use rayon::prelude::*;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::model::slice_meta::{BlobMeta, FileMeta};
 use crate::model::snapshot::{CommitSummary, RepoSnapshot};
@@ -141,7 +140,10 @@ impl GitRepo {
                 if name == ".git" {
                     continue;
                 }
-                if path.is_dir() {
+                // file_type() 不跟随符号链接：指向目录的符号链接被当作文件处理，
+                // 避免 ln -s . 之类的循环导致死循环。
+                let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                if is_dir {
                     stack.push(path);
                 } else if let Ok(meta) = entry.metadata() {
                     if let Ok(rel) = path.strip_prefix(&workdir) {
@@ -166,7 +168,12 @@ impl GitRepo {
     /// 单对象解析失败跳过继续（对象级容错），revwalk 建立失败透传
     /// [`RbError::Git`]（整仓级）。主线程按时间正序归并，同一路径同一
     /// blob 保留最早提交为「首次引入」语义；`batch_size` 为 0 时按 1 处理。
-    pub fn history_blob_metas(&self, batch_size: usize) -> Result<Vec<BlobMeta>> {
+    /// `cancel_flag` 为 `Some` 时在每批完成后检查，用户取消则提前返回已采集部分。
+    pub fn history_blob_metas(
+        &self,
+        batch_size: usize,
+        cancel_flag: Option<&AtomicBool>,
+    ) -> Result<Vec<BlobMeta>> {
         let workdir = self.workdir_path()?;
 
         // 多起点 revwalk：全部本地分支 tip（覆盖未合并分支对象）。
@@ -204,13 +211,19 @@ impl GitRepo {
             commit_oids.push(oid);
         }
 
-        // 分批并行：每批独立开仓（Repository Send 非 Sync 硬约束）。
+        // 分批处理：每批独立开仓（Repository Send 非 Sync 硬约束）。
+        // 改为顺序处理以在批次边界检查取消标志（大仓库场景下批次少，
+        // 取消响应延迟可接受；后续可恢复并行 + 批间检查）。
         let width = batch_size.max(1);
-        let batches: Vec<&[git2::Oid]> = commit_oids.chunks(width).collect();
-        let batch_results: Vec<Vec<(String, String, u64, CommitSummary)>> = batches
-            .par_iter()
-            .map(|batch| process_batch(&workdir, batch))
-            .collect();
+        let mut batch_results: Vec<Vec<(String, String, u64, CommitSummary)>> = Vec::new();
+        for batch in commit_oids.chunks(width) {
+            if let Some(flag) = cancel_flag {
+                if flag.load(Ordering::Relaxed) {
+                    break;
+                }
+            }
+            batch_results.push(process_batch(&workdir, batch));
+        }
 
         // 主线程按批序（时间正序）归并：同 (路径, blob) 保留最早提交。
         let mut seen: HashMap<(String, String), BlobMeta> = HashMap::new();
@@ -328,7 +341,9 @@ fn collect_files(workdir: &Path) -> (Vec<String>, u64) {
             if name == ".git" {
                 continue;
             }
-            if path.is_dir() {
+            // file_type() 不跟随符号链接，避免循环链接死循环。
+            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if is_dir {
                 stack.push(path);
             } else {
                 if let Ok(meta) = entry.metadata() {
@@ -398,7 +413,7 @@ mod tests {
         t.commit(&[("big.bin", &vec![0u8; 200_000])], "first");
         t.commit(&[("big.bin", &vec![0u8; 300_000])], "second");
         let git = GitRepo::open(t.path()).unwrap();
-        let blobs = git.history_blob_metas(64).unwrap();
+        let blobs = git.history_blob_metas(64, None).unwrap();
         let big_blobs: Vec<_> = blobs.iter().filter(|b| b.path == "big.bin").collect();
         assert_eq!(big_blobs.len(), 2);
         let earliest = big_blobs.iter().min_by_key(|b| b.first_commit.time).unwrap();
@@ -413,8 +428,8 @@ mod tests {
         t.commit(&[("b.txt", b"hi")], "c2");
         t.commit(&[("c.txt", b"hi")], "c3");
         let git = GitRepo::open(t.path()).unwrap();
-        let full = git.history_blob_metas(64).unwrap();
-        let batched = git.history_blob_metas(1).unwrap();
+        let full = git.history_blob_metas(64, None).unwrap();
+        let batched = git.history_blob_metas(1, None).unwrap();
         let mut full_pairs: Vec<_> = full.iter().map(|b| (b.path.clone(), b.size)).collect();
         let mut batched_pairs: Vec<_> = batched.iter().map(|b| (b.path.clone(), b.size)).collect();
         full_pairs.sort();
@@ -431,7 +446,7 @@ mod tests {
         t.checkout("old");
         t.commit(&[("big_old.bin", &vec![0u8; 200_000])], "big on old");
         let git = GitRepo::open(t.path()).unwrap();
-        let blobs = git.history_blob_metas(64).unwrap();
+        let blobs = git.history_blob_metas(64, None).unwrap();
         assert!(blobs.iter().any(|b| b.path == "big_old.bin"));
     }
 }
