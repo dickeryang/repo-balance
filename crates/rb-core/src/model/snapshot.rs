@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 单条提交的摘要信息。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitSummary {
     /// 提交 SHA（完整 40 位）。
     pub id: String,
@@ -28,10 +28,10 @@ pub struct RepoSnapshot {
     pub commit_count: usize,
     /// 最近提交摘要（按时间倒序，最多 20 条）。
     pub recent_commits: Vec<CommitSummary>,
-    /// 跟踪文件数。
+    /// 工作区文件数量（含未跟踪文件，跳过 .git 目录）。
     pub file_count: usize,
     /// 工作目录文件总字节数（不含 .git）。
     pub total_bytes: u64,
-    /// 依赖清单文件绝对路径。
+    /// 依赖清单文件相对路径（相对仓库根，统一正斜杠，字典序稳定）。
     pub dep_manifests: Vec<String>,
 }

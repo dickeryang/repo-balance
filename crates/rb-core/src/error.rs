@@ -1,8 +1,5 @@
 use thiserror::Error;
 
-/// crate 级 Result 别名。
-pub type Result<T> = std::result::Result<T, RbError>;
-
 /// 统一错误类型。
 #[derive(Debug, Error)]
 pub enum RbError {
@@ -17,4 +14,12 @@ pub enum RbError {
     /// IO 错误。
     #[error("IO 错误: {0}")]
     Io(#[from] std::io::Error),
+
+    /// 检查器 id 重复注册（注册表唯一性校验失败，携带冲突 id）。
+    #[error("检查器 id 重复注册: {id}")]
+    DuplicateChecker { id: String },
+
+    /// 非法的数据切片请求（如 FileContents 空模式）。
+    #[error("非法的数据切片请求: {0}")]
+    InvalidSlice(String),
 }
