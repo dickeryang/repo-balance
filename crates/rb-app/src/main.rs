@@ -1,3 +1,22 @@
+mod commands;
+mod dto;
+mod error;
+mod state;
+
+use commands::{cancel_scan, export_report, repo_info, select_directory, start_scan};
+use state::ScanState;
+
 fn main() {
-    // Tauri 2 壳占位：后续 D4 接入 tauri::Builder 与 UI。
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .manage(ScanState::new())
+        .invoke_handler(tauri::generate_handler![
+            select_directory,
+            repo_info,
+            start_scan,
+            cancel_scan,
+            export_report
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 }

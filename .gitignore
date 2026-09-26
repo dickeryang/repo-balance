@@ -10,6 +10,7 @@ Cargo.lock.orig
 # Tauri
 src-tauri/target/
 src-tauri/gen/schemas/
+crates/rb-app/gen/
 
 # Node / frontend
 node_modules/
