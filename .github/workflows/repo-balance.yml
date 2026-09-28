@@ -1,0 +1,40 @@
+name: RepoBalance 体检
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  repo-balance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates
+
+      - name: 构建 rb CLI
+        run: cargo build --release -p rb-core
+        working-directory: crates
+
+      - name: 运行仓衡体检
+        run: ../target/release/rb scan . --ci
+        working-directory: crates/rb-core
+
+      - name: 上传 JSON 报告
+        if: always()
+        run: ../target/release/rb scan . --json > repo-balance-report.json
+        working-directory: crates/rb-core
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repo-balance-report
+          path: crates/rb-core/repo-balance-report.json

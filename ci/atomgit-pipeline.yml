@@ -1,0 +1,22 @@
+# AtomGit 流水线示例
+#
+# 在 AtomGit 仓库「流水线 / CI」设置中引用本文件即可。
+# 流水线会在 push / PR 时自动运行仓衡体检，
+# 存在 Critical 问题时标记失败。
+
+stages:
+  - 体检
+
+repo-balance:
+  stage: 体检
+  image: rust:latest
+  script:
+    - cargo build --release -p rb-core
+    - ./target/release/rb scan . --ci
+  artifacts:
+    paths:
+      - repo-balance-report.json
+  allow_failure: false
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
