@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import type { RadarPoint } from '../../types/models'
+import { useI18n } from '../i18n'
 
 const props = defineProps<{ points: RadarPoint[] }>()
+const { t } = useI18n()
 
 const CX = 150
 const CY = 150
@@ -49,7 +51,7 @@ const axisPoints = Array.from({ length: 5 }, (_, i) => vertex(i, R))
     <polygon :points="scorePolygon()" fill="rgba(79,140,255,0.25)" stroke="var(--accent)" stroke-width="2" />
     <circle v-for="(p, i) in points" :key="i" :cx="vertex(i, (p.score ?? 0) / 100 * R).x" :cy="vertex(i, (p.score ?? 0) / 100 * R).y" r="3" fill="var(--accent)" />
     <text v-for="(p, i) in points" :key="'label-' + i" :x="labelPos(i).x" :y="labelPos(i).y" text-anchor="middle" dominant-baseline="middle" fill="var(--text-dim)" font-size="11">
-      {{ p.name }} {{ p.score ?? 'N/A' }}
+      {{ t(`filter.${p.key}`) }} {{ p.score ?? 'N/A' }}
     </text>
   </svg>
 </template>

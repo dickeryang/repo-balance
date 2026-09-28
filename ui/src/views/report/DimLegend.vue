@@ -21,7 +21,7 @@ function barColor(score: number | null): string {
       :class="{ active: store.activeFilter === point.key }"
       @click="store.setFilter(point.key)"
     >
-      <span>{{ point.name }}</span>
+      <span>{{ t(`filter.${point.key}`) }}</span>
       <div class="bar">
         <i :style="{ width: (point.score ?? 0) + '%', background: barColor(point.score) }"></i>
       </div>

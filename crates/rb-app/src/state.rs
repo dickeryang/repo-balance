@@ -32,15 +32,21 @@ impl ScanState {
         self.cancel_flag.store(true, Ordering::Relaxed);
     }
 
-    /// 原子领取扫描权：复位取消标志，并以 CAS 确认 `scanning` false→true。
+    /// 原子领取扫描权：以 CAS 确认 `scanning` false→true，成功后复位取消标志。
     ///
-    /// 返回 `false` 表示已有扫描在进行（原「检查-复位-置位」三步非原子，
-    /// 并发 start_scan 可能同时通过检查；本方法以 compare_exchange 消除竞态）。
+    /// 返回 `false` 表示已有扫描在进行。先 CAS 再复位 cancel_flag，
+    /// 避免并发 start_scan 复位正在进行的扫描的取消标志。
     pub fn begin_scan(&self) -> bool {
-        self.cancel_flag.store(false, Ordering::Relaxed);
-        self.scanning
+        if self
+            .scanning
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
             .is_ok()
+        {
+            self.cancel_flag.store(false, Ordering::Relaxed);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn is_scanning(&self) -> bool {
