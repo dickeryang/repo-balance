@@ -15,7 +15,7 @@ const stageText = computed(() => {
   const p = store.progress
   if (!p) return t('scan.preparing')
   const range = p.total > 0 ? `（${p.done}/${p.total}）` : ''
-  return `${t('scan.stage')}: ${p.stage}${range}`
+  return `${t('scan.stage')}: ${t(`scan.stage.${p.stage}`)}${range}`
 })
 </script>
 

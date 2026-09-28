@@ -39,6 +39,12 @@ function clearSelection() {
   baselineId.value = null
   targetId.value = null
 }
+
+function deleteEntry(id: string) {
+  store.deleteHistory(id)
+  if (baselineId.value === id) baselineId.value = null
+  if (targetId.value === id) targetId.value = null
+}
 </script>
 
 <template>
@@ -95,7 +101,7 @@ function clearSelection() {
             >
               {{ t('history.target') }}
             </button>
-            <button class="btn danger tiny" @click="store.deleteHistory(entry.id)">{{ t('history.delete') }}</button>
+            <button class="btn danger tiny" @click="deleteEntry(entry.id)">{{ t('history.delete') }}</button>
           </div>
         </div>
       </div>

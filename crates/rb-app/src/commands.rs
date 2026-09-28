@@ -45,19 +45,13 @@ pub async fn repo_info(path: String) -> Result<RepoSnapshotDto, String> {
 
 /// 将引擎阶段事件映射为前端进度事件 payload。
 ///
-/// 中文阶段名 + 估算百分比（0-100），字段与前端 `ProgressEvent` 类型
+/// `stage` 传递原始阶段标识（snapshot/workdir/history/check/done），
+/// 由前端按当前 locale 翻译；字段与前端 `ProgressEvent` 类型
 /// 一一对应（camelCase：stage/checkerId/done/total/percent）。
 fn progress_payload(p: rb_core::engine::scan::ScanProgress) -> serde_json::Value {
-    let stage_cn = match p.stage {
-        "snapshot" => "初始化",
-        "workdir" => "工作区采集",
-        "history" => "历史采集",
-        "check" => "检查",
-        _ => "完成",
-    };
     let percent = estimate_percent(p.stage, p.done, p.total);
     serde_json::json!({
-        "stage": stage_cn,
+        "stage": p.stage,
         "checkerId": "",
         "done": p.done,
         "total": p.total,
