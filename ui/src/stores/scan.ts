@@ -3,9 +3,11 @@ import { ref, computed } from 'vue'
 import * as ipc from '../ipc/commands'
 import { onScanDone, onScanProgress, onScanCancelled, onScanError } from '../ipc/events'
 import type { UnlistenFn } from '@tauri-apps/api/event'
-import type { RepoSnapshot, ScanReport, CheckerFeedRow, ProgressEvent, ScanConfig } from '../types/models'
+import type { RepoSnapshot, ScanReport, CheckerFeedRow, ProgressEvent, ScanConfig, HistoryEntry, HistoryCompare, Finding } from '../types/models'
 
 const DEFAULT_CONFIG: ScanConfig = { bigFileThreshold: 1_048_576, enabledCheckers: ['big-files'] }
+const HISTORY_KEY = 'rb-scan-history'
+const HISTORY_MAX = 20
 
 function loadConfig(): ScanConfig {
   try {
@@ -17,8 +19,38 @@ function loadConfig(): ScanConfig {
   return { ...DEFAULT_CONFIG }
 }
 
+function loadHistory(): HistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY)
+    if (raw) return JSON.parse(raw) as HistoryEntry[]
+  } catch {
+    /* 解析失败回退空列表 */
+  }
+  return []
+}
+
+function persistHistory(entries: HistoryEntry[]) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries))
+  } catch {
+    /* 忽略持久化失败 */
+  }
+}
+
+function repoNameOf(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  const seg = trimmed.split(/[\\/]/).pop()
+  return seg || trimmed
+}
+
+function totalScoreOf(report: ScanReport): number {
+  const scores = report.radarPoints.map((p) => p.score).filter((s): s is number => s !== null)
+  if (scores.length === 0) return 0
+  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+}
+
 export const useScanStore = defineStore('scan', () => {
-  const currentView = ref<1 | 2 | 3>(1)
+  const currentView = ref<1 | 2 | 3 | 4>(1)
   const selectedPath = ref<string | null>(null)
   const repoInfo = ref<RepoSnapshot | null>(null)
   const repoError = ref<string | null>(null)
@@ -30,6 +62,7 @@ export const useScanStore = defineStore('scan', () => {
   const activeFilter = ref('all')
   const expandedFindings = ref<Set<string>>(new Set())
   const scanConfig = ref<ScanConfig>(loadConfig())
+  const history = ref<HistoryEntry[]>(loadHistory())
 
   // 扫描代际号：每次开启新扫描自增；事件回调按注册时捕获的代际过滤，
   // 迟到的陈旧事件（上一轮扫描的 scan-done 等）直接丢弃。
@@ -86,12 +119,13 @@ export const useScanStore = defineStore('scan', () => {
     unlistenScanEvents()
     const stale = () => token !== scanToken
     unlisteners = [
-      // scan-done：写入报告并跳转报告页
+      // scan-done：写入报告、保存历史并跳转报告页
       onScanDone((r) => {
         if (stale()) return
         unlistenScanEvents()
         report.value = r
         isScanning.value = false
+        saveToHistory(r)
         currentView.value = 3
       }),
       // scan-progress：更新进度
@@ -197,7 +231,7 @@ export const useScanStore = defineStore('scan', () => {
     resetToConnect()
   }
 
-  function setCurrentView(view: 1 | 2 | 3) {
+  function setCurrentView(view: 1 | 2 | 3 | 4) {
     currentView.value = view
   }
 
@@ -215,6 +249,60 @@ export const useScanStore = defineStore('scan', () => {
     }
   }
 
+  /** 将完成的扫描报告保存到历史列表（最多保留 HISTORY_MAX 条）。 */
+  function saveToHistory(r: ScanReport) {
+    const entry: HistoryEntry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      savedAt: Date.now(),
+      repoPath: r.repoPath,
+      repoName: repoNameOf(r.repoPath),
+      totalScore: totalScoreOf(r),
+      findingCount: r.findings.length,
+      report: r,
+    }
+    const next = [entry, ...history.value].slice(0, HISTORY_MAX)
+    history.value = next
+    persistHistory(next)
+  }
+
+  /** 删除指定历史条目。 */
+  function deleteHistory(id: string) {
+    const next = history.value.filter((e) => e.id !== id)
+    history.value = next
+    persistHistory(next)
+  }
+
+  /** 清空全部历史。 */
+  function clearHistory() {
+    history.value = []
+    persistHistory([])
+  }
+
+  /** 对比两条历史：以 baseline 为基准、target 为对照，计算新增/消除/不变发现项。 */
+  function compareHistory(idA: string, idB: string): HistoryCompare | null {
+    const baseline = history.value.find((e) => e.id === idA)
+    const target = history.value.find((e) => e.id === idB)
+    if (!baseline || !target) return null
+    const baselineIds = new Set(baseline.report.findings.map((f) => f.id))
+    const targetIds = new Set(target.report.findings.map((f) => f.id))
+    const addedFindings: Finding[] = []
+    const commonFindings: Finding[] = []
+    for (const f of target.report.findings) {
+      if (baselineIds.has(f.id)) commonFindings.push(f)
+      else addedFindings.push(f)
+    }
+    const resolvedFindings = baseline.report.findings.filter((f) => !targetIds.has(f.id))
+    return {
+      baseline,
+      target,
+      scoreDelta: target.totalScore - baseline.totalScore,
+      findingCountDelta: target.findingCount - baseline.findingCount,
+      addedFindings,
+      resolvedFindings,
+      commonFindings,
+    }
+  }
+
   return {
     currentView,
     selectedPath,
@@ -228,6 +316,7 @@ export const useScanStore = defineStore('scan', () => {
     activeFilter,
     expandedFindings,
     scanConfig,
+    history,
     filteredFindings,
     totalScore,
     selectDirectory,
@@ -242,5 +331,8 @@ export const useScanStore = defineStore('scan', () => {
     setCurrentView,
     setCheckerFeed,
     setScanConfig,
+    deleteHistory,
+    clearHistory,
+    compareHistory,
   }
 })

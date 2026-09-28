@@ -18,12 +18,17 @@ const store = useScanStore()
     <button v-if="store.selectedPath" class="btn ghost switch-btn" @click="store.switchRepo()">
       🔄 更换仓库
     </button>
+    <button class="btn ghost switch-btn" @click="store.setCurrentView(4)">
+      📜 历史
+    </button>
     <div class="steps">
       <div class="step" :class="{ active: store.currentView === 1, done: store.currentView > 1 }">① 接入仓库</div>
       <div class="step-arrow">→</div>
       <div class="step" :class="{ active: store.currentView === 2, done: store.currentView > 2 }">② 体检扫描</div>
       <div class="step-arrow">→</div>
       <div class="step" :class="{ active: store.currentView === 3 }">③ 报告仪表盘</div>
+      <div class="step-arrow">→</div>
+      <div class="step" :class="{ active: store.currentView === 4 }">④ 历史对比</div>
     </div>
   </div>
 </template>

@@ -78,3 +78,39 @@ export interface CheckerFeedRow {
   status: CheckerStatus
   findingCount: number
 }
+
+/** 扫描历史条目：保存报告快照用于跨次对比。 */
+export interface HistoryEntry {
+  /** 唯一 id（时间戳 + 随机后缀）。 */
+  id: string
+  /** 保存时间（epoch ms）。 */
+  savedAt: number
+  /** 仓库路径。 */
+  repoPath: string
+  /** 仓库名（路径末段）。 */
+  repoName: string
+  /** 总分（0-100）。 */
+  totalScore: number
+  /** 发现项数量。 */
+  findingCount: number
+  /** 完整报告快照。 */
+  report: ScanReport
+}
+
+/** 两次扫描的对比结果。 */
+export interface HistoryCompare {
+  /** 基线条目。 */
+  baseline: HistoryEntry
+  /** 对照条目。 */
+  target: HistoryEntry
+  /** 总分变化（target - baseline）。 */
+  scoreDelta: number
+  /** 发现项数量变化。 */
+  findingCountDelta: number
+  /** 新增的发现项（target 中有、baseline 中无，按 id 匹配）。 */
+  addedFindings: Finding[]
+  /** 消除的发现项（baseline 中有、target 中无）。 */
+  resolvedFindings: Finding[]
+  /** 两轮都存在的发现项。 */
+  commonFindings: Finding[]
+}

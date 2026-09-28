@@ -4,6 +4,7 @@ import TopBar from './components/TopBar.vue'
 import ConnectView from './views/ConnectView.vue'
 import ScanView from './views/ScanView.vue'
 import ReportView from './views/ReportView.vue'
+import HistoryView from './views/HistoryView.vue'
 
 const store = useScanStore()
 </script>
@@ -19,6 +20,9 @@ const store = useScanStore()
     </div>
     <div class="view" v-show="store.currentView === 3" :class="{ visible: store.currentView === 3 }">
       <ReportView />
+    </div>
+    <div class="view" v-show="store.currentView === 4" :class="{ visible: store.currentView === 4 }">
+      <HistoryView />
     </div>
   </div>
 </template>
