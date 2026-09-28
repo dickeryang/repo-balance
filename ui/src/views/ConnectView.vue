@@ -2,6 +2,7 @@
 import { useScanStore } from '../stores/scan'
 import DropZone from './connect/DropZone.vue'
 import RepoInfoCard from './connect/RepoInfoCard.vue'
+import ConfigPanel from './connect/ConfigPanel.vue'
 
 const store = useScanStore()
 </script>
@@ -13,7 +14,10 @@ const store = useScanStore()
       <div class="error-msg">⚠ {{ store.repoError }}</div>
       <button class="btn ghost" style="margin-top:14px;" @click="store.selectDirectory()">重新选择目录</button>
     </div>
-    <RepoInfoCard v-else-if="store.repoInfo" />
+    <template v-else-if="store.repoInfo">
+      <RepoInfoCard />
+      <ConfigPanel />
+    </template>
   </template>
 </template>
 

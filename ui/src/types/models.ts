@@ -63,6 +63,14 @@ export interface ProgressEvent {
   percent?: number
 }
 
+/** 扫描配置：用户可调整大文件阈值与启用检查器集合。 */
+export interface ScanConfig {
+  /** 大文件判定阈值（字节）。 */
+  bigFileThreshold: number
+  /** 启用的检查器 id 列表（空表示全部启用）。 */
+  enabledCheckers: string[]
+}
+
 export type CheckerStatus = 'pending' | 'running' | 'done'
 
 export interface CheckerFeedRow {

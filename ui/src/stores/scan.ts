@@ -3,7 +3,19 @@ import { ref, computed } from 'vue'
 import * as ipc from '../ipc/commands'
 import { onScanDone, onScanProgress, onScanCancelled, onScanError } from '../ipc/events'
 import type { UnlistenFn } from '@tauri-apps/api/event'
-import type { RepoSnapshot, ScanReport, CheckerFeedRow, ProgressEvent } from '../types/models'
+import type { RepoSnapshot, ScanReport, CheckerFeedRow, ProgressEvent, ScanConfig } from '../types/models'
+
+const DEFAULT_CONFIG: ScanConfig = { bigFileThreshold: 1_048_576, enabledCheckers: ['big-files'] }
+
+function loadConfig(): ScanConfig {
+  try {
+    const raw = localStorage.getItem('rb-scan-config')
+    if (raw) return { ...DEFAULT_CONFIG, ...JSON.parse(raw) }
+  } catch {
+    /* localStorage 不可用时回退默认 */
+  }
+  return { ...DEFAULT_CONFIG }
+}
 
 export const useScanStore = defineStore('scan', () => {
   const currentView = ref<1 | 2 | 3>(1)
@@ -17,6 +29,7 @@ export const useScanStore = defineStore('scan', () => {
   const isCancelled = ref(false)
   const activeFilter = ref('all')
   const expandedFindings = ref<Set<string>>(new Set())
+  const scanConfig = ref<ScanConfig>(loadConfig())
 
   // 扫描代际号：每次开启新扫描自增；事件回调按注册时捕获的代际过滤，
   // 迟到的陈旧事件（上一轮扫描的 scan-done 等）直接丢弃。
@@ -115,7 +128,7 @@ export const useScanStore = defineStore('scan', () => {
     const token = ++scanToken
     listenScanEvents(token)
     try {
-      await ipc.startScan(path)
+      await ipc.startScan(path, scanConfig.value)
     } catch (e) {
       if (token !== scanToken) return
       unlistenScanEvents()
@@ -192,6 +205,16 @@ export const useScanStore = defineStore('scan', () => {
     checkerFeed.value = feed
   }
 
+  /** 更新扫描配置并持久化到 localStorage。 */
+  function setScanConfig(cfg: ScanConfig) {
+    scanConfig.value = cfg
+    try {
+      localStorage.setItem('rb-scan-config', JSON.stringify(cfg))
+    } catch {
+      /* 忽略持久化失败 */
+    }
+  }
+
   return {
     currentView,
     selectedPath,
@@ -204,6 +227,7 @@ export const useScanStore = defineStore('scan', () => {
     isCancelled,
     activeFilter,
     expandedFindings,
+    scanConfig,
     filteredFindings,
     totalScore,
     selectDirectory,
@@ -217,5 +241,6 @@ export const useScanStore = defineStore('scan', () => {
     resetToConnect,
     setCurrentView,
     setCheckerFeed,
+    setScanConfig,
   }
 })

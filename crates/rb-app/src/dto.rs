@@ -77,6 +77,25 @@ pub struct ProgressEventDto {
     pub total: usize,
 }
 
+/// 扫描配置 DTO（camelCase）：用户可调整阈值与启用检查器集合。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanConfigDto {
+    /// 大文件判定阈值（字节），默认 1 MiB。
+    pub big_file_threshold: u64,
+    /// 启用的检查器 id 列表（空表示全部启用）。
+    pub enabled_checkers: Vec<String>,
+}
+
+impl Default for ScanConfigDto {
+    fn default() -> Self {
+        Self {
+            big_file_threshold: 1_048_576,
+            enabled_checkers: vec!["big-files".to_owned()],
+        }
+    }
+}
+
 /// 完整扫描报告 DTO。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

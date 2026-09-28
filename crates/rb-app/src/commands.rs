@@ -94,11 +94,13 @@ fn estimate_percent(stage: &str, done: usize, total: usize) -> u8 {
 
 /// 启动扫描：异步包装同步 scan（spawn_blocking 避免占死 tokio worker），
 /// 完成后 emit scan-done；失败 emit scan-error（与用户取消事件分离）。
+/// `config` 为 `None` 时使用默认配置（大文件阈值 1 MiB、启用 big-files）。
 #[tauri::command]
 pub async fn start_scan(
     app: tauri::AppHandle,
     state: State<'_, ScanState>,
     path: String,
+    config: Option<crate::dto::ScanConfigDto>,
 ) -> Result<(), String> {
     let path_buf = PathBuf::from(&path);
     rb_core::git::GitRepo::open(&path_buf).map_err(map_error)?;
@@ -111,6 +113,7 @@ pub async fn start_scan(
     let app_handle = app.clone();
     let cancel_flag = state.cancel_flag();
     let cancel_flag_arc = Arc::clone(&cancel_flag);
+    let cfg = config.unwrap_or_default();
 
     tauri::async_runtime::spawn(async move {
         let app_for_blocking = app_handle.clone();
@@ -121,13 +124,21 @@ pub async fn start_scan(
             let progress_cb = move |p: rb_core::engine::scan::ScanProgress| {
                 let _ = app_for_progress.emit("scan-progress", progress_payload(p));
             };
+            // 按启用列表注册检查器（空列表表示全部启用）。
             let mut registry = rb_core::checker::CheckerRegistry::new();
-            let _ = registry.register(Box::new(rb_core::checker::BigFilesChecker));
+            let enable_all = cfg.enabled_checkers.is_empty();
+            if enable_all || cfg.enabled_checkers.iter().any(|id| id == "big-files") {
+                let _ = registry.register(Box::new(rb_core::checker::BigFilesChecker));
+            }
+            let core_config = rb_core::checker::ScanConfig {
+                big_file_threshold: cfg.big_file_threshold,
+            };
             rb_core::engine::scan::scan_with_progress(
                 &path_buf,
                 &registry,
                 Some(cancel_flag_arc.as_ref()),
                 Some(&progress_cb as &dyn Fn(rb_core::engine::scan::ScanProgress)),
+                &core_config,
             )
         })
         .await;

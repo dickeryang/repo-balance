@@ -31,7 +31,8 @@ pub struct ScanProgress {
 ///
 /// 不检查取消、不上报进度。
 pub fn scan(path: &std::path::Path, registry: &CheckerRegistry) -> Result<ScanReport> {
-    scan_with_progress(path, registry, None, None)
+    let config = ScanConfig::default();
+    scan_with_progress(path, registry, None, None, &config)
 }
 
 /// 带取消检查的完整扫描。
@@ -43,20 +44,23 @@ pub fn scan_with_cancel(
     registry: &CheckerRegistry,
     cancel_flag: Option<&AtomicBool>,
 ) -> Result<ScanReport> {
-    scan_with_progress(path, registry, cancel_flag, None)
+    let config = ScanConfig::default();
+    scan_with_progress(path, registry, cancel_flag, None, &config)
 }
 
-/// 带取消检查与进度回调的完整扫描。
+/// 带取消检查、进度回调与自定义配置的完整扫描。
 ///
 /// `cancel_flag` 为 `Some` 时在批次边界检查；用户取消后 `history_blob_metas`
 /// 提前返回已采集的部分 blob，扫描继续完成（findings 可能不完整）。
 /// `on_progress` 为 `Some` 时在阶段边界（快照、工作区采集、历史采集批次、
 /// 逐检查器 check、完成）回调 [`ScanProgress`]，供编排层转发进度事件。
+/// `config` 为扫描全局配置（如大文件阈值），由编排层注入。
 pub fn scan_with_progress(
     path: &std::path::Path,
     registry: &CheckerRegistry,
     cancel_flag: Option<&AtomicBool>,
     on_progress: Option<&dyn Fn(ScanProgress)>,
+    config: &ScanConfig,
 ) -> Result<ScanReport> {
     let started_at = now_secs();
     let start = Instant::now();
@@ -73,8 +77,7 @@ pub fn scan_with_progress(
     report_progress("snapshot", 1, 1);
 
     // plan 阶段：base 上下文收集全部检查器的切片请求。
-    let config = ScanConfig::default();
-    let mut ctx = ScanContext::base(&snapshot, &config);
+    let mut ctx = ScanContext::base(&snapshot, config);
     let plans: Vec<_> = registry.list().iter().map(|c| c.plan(&ctx)).collect();
     let merged = merge_plans(&plans);
 
@@ -201,7 +204,9 @@ mod tests {
         registry.register(Box::new(crate::checker::BigFilesChecker)).unwrap();
 
         let mut events = Vec::new();
-        super::scan_with_progress(t.path(), &registry, None, Some(&|p| events.push(p))).unwrap();
+        let config = crate::checker::ScanConfig::default();
+        super::scan_with_progress(t.path(), &registry, None, Some(&|p| events.push(p)), &config)
+            .unwrap();
 
         let stages: Vec<&str> = events.iter().map(|p| p.stage).collect();
         assert_eq!(stages.first(), Some(&"snapshot"), "首个阶段应为 snapshot");
