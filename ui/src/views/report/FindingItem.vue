@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { useScanStore } from '../../stores/scan'
+import { useI18n } from '../../i18n'
 import type { Finding } from '../../types/models'
 
 const props = defineProps<{ finding: Finding }>()
 const store = useScanStore()
-
-const sevText: Record<string, string> = { critical: '严重', warning: '警告', info: '提示' }
-const catText: Record<string, string> = { structure: '结构', history: '历史', branches: '分支', deps: '依赖', security: '安全' }
+const { t } = useI18n()
 
 function toggle() {
   store.toggleFinding(props.finding.id)
@@ -21,8 +20,8 @@ function isOpen(): boolean {
   <div class="finding" :class="{ open: isOpen() }">
     <div class="finding-head" @click="toggle">
       <div class="sev-dot" :class="`sev-${finding.severity}`"></div>
-      <span class="sev-tag" :class="`tag-${finding.severity}`">{{ sevText[finding.severity] }}</span>
-      <span class="cat-tag">{{ catText[finding.category] }}</span>
+      <span class="sev-tag" :class="`tag-${finding.severity}`">{{ t(`filter.${finding.severity}`) }}</span>
+      <span class="cat-tag">{{ t(`filter.${finding.category}`) }}</span>
       <span class="finding-title">{{ finding.title }}</span>
       <span class="chevron">{{ isOpen() ? '▲' : '▼' }}</span>
     </div>
@@ -30,13 +29,13 @@ function isOpen(): boolean {
       <div class="detail-grid">
         <div class="detail-box">
           <div class="lbl">
-            <span>证据</span>
-            <span class="mask-note">🔒 掩码展示 · 导出同掩码</span>
+            <span>{{ t('report.evidence') }}</span>
+            <span class="mask-note">{{ t('report.mask') }}</span>
           </div>
           <div class="evidence">{{ finding.evidence }}</div>
         </div>
         <div class="detail-box">
-          <div class="lbl"><span>修复建议</span></div>
+          <div class="lbl"><span>{{ t('report.suggestion') }}</span></div>
           <div class="suggestion">{{ finding.suggestion }}</div>
         </div>
       </div>

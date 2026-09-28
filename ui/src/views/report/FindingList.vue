@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { useScanStore } from '../../stores/scan'
+import { useI18n } from '../../i18n'
 import FindingToolbar from './FindingToolbar.vue'
 import FindingItem from './FindingItem.vue'
 
 const store = useScanStore()
+const { t } = useI18n()
 
 const severityOrder: Record<string, number> = { critical: 0, warning: 1, info: 2 }
 </script>
@@ -11,9 +13,9 @@ const severityOrder: Record<string, number> = { critical: 0, warning: 1, info: 2
 <template>
   <div class="card">
     <h2>
-      发现的问题
+      {{ t('report.findings') }}
       <span class="dim">
-        {{ store.filteredFindings.length }} 条<span v-if="store.isCancelled">（部分结果）</span>
+        {{ store.filteredFindings.length }} {{ t('report.findingCount') }}<span v-if="store.isCancelled">{{ t('report.partial') }}</span>
       </span>
     </h2>
     <FindingToolbar />
@@ -25,7 +27,7 @@ const severityOrder: Record<string, number> = { critical: 0, warning: 1, info: 2
       />
     </div>
     <div v-else class="healthy-dim">
-      该筛选条件下无发现 · 维度健康 <b>✓</b>
+      {{ t('report.noFinding') }} <b>✓</b>
     </div>
   </div>
 </template>

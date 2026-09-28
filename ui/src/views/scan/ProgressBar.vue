@@ -1,14 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useScanStore } from '../../stores/scan'
+import { useI18n } from '../../i18n'
 const store = useScanStore()
+const { t } = useI18n()
 
-/**
- * 进度百分比（0-100）。
- * 后端 progress 事件统一携带 percent（阶段分段估算：初始化 5% →
- * 工作区采集 10% → 历史采集 10-90% 按提交比例推进 → 检查 90-99% → 完成 100%）。
- * 尚未收到任何进度事件时为 null，进度条进入 indeterminate 待机动画。
- */
 const percent = computed<number | null>(() => store.progress?.percent ?? null)
 
 const fillStyle = computed(() =>
@@ -17,9 +13,9 @@ const fillStyle = computed(() =>
 
 const stageText = computed(() => {
   const p = store.progress
-  if (!p) return '正在准备扫描…'
+  if (!p) return t('scan.preparing')
   const range = p.total > 0 ? `（${p.done}/${p.total}）` : ''
-  return `阶段：${p.stage}${range}`
+  return `${t('scan.stage')}: ${p.stage}${range}`
 })
 </script>
 

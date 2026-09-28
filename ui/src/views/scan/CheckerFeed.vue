@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { useScanStore } from '../../stores/scan'
+import { useI18n } from '../../i18n'
 import FeedRow from './FeedRow.vue'
 
 const store = useScanStore()
+const { t } = useI18n()
 </script>
 
 <template>
   <div class="checker-feed">
     <FeedRow v-for="row in store.checkerFeed" :key="row.checkerId" :row="row" />
     <div v-if="store.checkerFeed.length === 0" class="dim" style="padding:12px;">
-      已注册检查器：big-files（stub 阶段无实时进度）
+      {{ t('scan.checkerRegistered') }}
     </div>
   </div>
 </template>

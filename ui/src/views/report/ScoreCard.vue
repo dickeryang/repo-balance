@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useScanStore } from '../../stores/scan'
+import { useI18n } from '../../i18n'
 const store = useScanStore()
+const { t } = useI18n()
 
 function scoreClass(score: number): string {
   if (score >= 80) return 'good'
@@ -9,9 +11,9 @@ function scoreClass(score: number): string {
 }
 
 function gradeText(score: number): string {
-  if (score >= 80) return '🟢 健康'
-  if (score >= 60) return '🟡 需改善'
-  return '🔴 需要关注'
+  if (score >= 80) return t('report.health')
+  if (score >= 60) return t('report.needsImprove')
+  return t('report.needsAttention')
 }
 
 function gradeStyle(score: number): string {
@@ -28,13 +30,13 @@ function formatTime(ts: number): string {
 
 <template>
   <div class="card score-card">
-    <div class="dim">仓库健康总评</div>
+    <div class="dim">{{ t('report.summary') }}</div>
     <div class="score-big" :class="scoreClass(store.totalScore)">{{ store.totalScore }}</div>
-    <div class="score-label">五维平均分（0~100）</div>
+    <div class="score-label">{{ t('report.scoreLabel') }}</div>
     <div class="score-grade" :style="gradeStyle(store.totalScore)">{{ gradeText(store.totalScore) }}</div>
     <div class="dim" style="margin-top:14px;" v-if="store.report">
       {{ store.report.repoPath.split(/[\\/]/).pop() }} · {{ formatTime(store.report.startedAt) }} · {{ (store.report.durationMs / 1000).toFixed(1) }}s
-      <span v-if="store.isCancelled" style="color:var(--warning);"> · 扫描已取消 · 显示已完成部分</span>
+      <span v-if="store.isCancelled" style="color:var(--warning);">{{ t('report.cancelled') }}</span>
     </div>
   </div>
 </template>

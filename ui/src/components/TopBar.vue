@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useScanStore } from '../stores/scan'
+import { useI18n } from '../i18n'
 
 const store = useScanStore()
+const { t, toggleLocale } = useI18n()
 </script>
 
 <template>
@@ -9,26 +11,29 @@ const store = useScanStore()
     <div class="logo">
       <div class="logo-badge">衡</div>
       <div>
-        仓衡 RepoBalance
-        <span class="sub">Git 仓库健康度体检台 · 纯本地 · 只诊断不改仓库</span>
+        {{ t('app.name') }}
+        <span class="sub">{{ t('app.sub') }}</span>
       </div>
     </div>
     <div class="spacer"></div>
-    <div class="local-badge">🔒 纯本地零网络</div>
+    <div class="local-badge">{{ t('app.localBadge') }}</div>
+    <button class="btn ghost switch-btn" @click="toggleLocale">
+      {{ t('app.langToggle') }}
+    </button>
     <button v-if="store.selectedPath" class="btn ghost switch-btn" @click="store.switchRepo()">
-      🔄 更换仓库
+      {{ t('app.switchRepo') }}
     </button>
     <button class="btn ghost switch-btn" @click="store.setCurrentView(4)">
-      📜 历史
+      {{ t('app.history') }}
     </button>
     <div class="steps">
-      <div class="step" :class="{ active: store.currentView === 1, done: store.currentView > 1 }">① 接入仓库</div>
+      <div class="step" :class="{ active: store.currentView === 1, done: store.currentView > 1 }">{{ t('app.step1') }}</div>
       <div class="step-arrow">→</div>
-      <div class="step" :class="{ active: store.currentView === 2, done: store.currentView > 2 }">② 体检扫描</div>
+      <div class="step" :class="{ active: store.currentView === 2, done: store.currentView > 2 }">{{ t('app.step2') }}</div>
       <div class="step-arrow">→</div>
-      <div class="step" :class="{ active: store.currentView === 3 }">③ 报告仪表盘</div>
+      <div class="step" :class="{ active: store.currentView === 3 }">{{ t('app.step3') }}</div>
       <div class="step-arrow">→</div>
-      <div class="step" :class="{ active: store.currentView === 4 }">④ 历史对比</div>
+      <div class="step" :class="{ active: store.currentView === 4 }">{{ t('app.step4') }}</div>
     </div>
   </div>
 </template>

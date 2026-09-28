@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useScanStore } from '../../stores/scan'
+import { useI18n } from '../../i18n'
 const store = useScanStore()
+const { t } = useI18n()
 
 function barColor(score: number | null): string {
   if (score === null) return 'var(--border)'
@@ -24,7 +26,7 @@ function barColor(score: number | null): string {
         <i :style="{ width: (point.score ?? 0) + '%', background: barColor(point.score) }"></i>
       </div>
       <span class="sc">{{ point.score ?? 'N/A' }}</span>
-      <span class="fc">{{ point.findingCount }} 条</span>
+      <span class="fc">{{ point.findingCount }} {{ t('report.dimCount') }}</span>
     </div>
   </div>
 </template>

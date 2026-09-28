@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useScanStore } from '../../stores/scan'
+import { useI18n } from '../../i18n'
 
 const store = useScanStore()
+const { t } = useI18n()
 
 const thresholdMiB = computed<number>({
   get: () => Math.round((store.scanConfig.bigFileThreshold / 1_048_576) * 10) / 10,
@@ -26,21 +28,21 @@ const bigFilesEnabled = computed<boolean>({
 
 <template>
   <div class="config-panel card">
-    <h3>检查器配置</h3>
+    <h3>{{ t('config.title') }}</h3>
     <div class="config-row">
       <label class="toggle">
         <input type="checkbox" v-model="bigFilesEnabled" />
-        <span>大文件检查器 <code>big-files</code></span>
+        <span>{{ t('config.bigFiles') }} <code>big-files</code></span>
       </label>
     </div>
     <div class="config-row">
-      <label for="threshold">大文件阈值</label>
+      <label for="threshold">{{ t('config.threshold') }}</label>
       <input id="threshold" type="number" min="0" step="0.1" v-model.number="thresholdMiB" />
       <span class="dim">MiB</span>
     </div>
-    <p class="dim hint">配置保存在本地（localStorage），下次启动自动恢复</p>
+    <p class="dim hint">{{ t('config.hint') }}</p>
     <p class="dim hint">
-      在仓库根目录创建 <code>.repobalance-ignore</code> 可忽略特定路径（语法同 .gitignore）
+      {{ t('config.ignoreHint') }} <code>.repobalance-ignore</code> {{ t('config.ignoreHint2') }}
     </p>
   </div>
 </template>

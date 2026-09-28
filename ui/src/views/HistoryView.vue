@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useScanStore } from '../stores/scan'
-import type { Finding } from '../types/models'
+import { useI18n } from '../i18n'
 
 const store = useScanStore()
+const { t } = useI18n()
 
 const baselineId = ref<string | null>(null)
 const targetId = ref<string | null>(null)
@@ -13,9 +14,6 @@ const compare = computed(() => {
   if (baselineId.value === targetId.value) return null
   return store.compareHistory(baselineId.value, targetId.value)
 })
-
-const sevText: Record<string, string> = { critical: '严重', warning: '警告', info: '提示' }
-const catText: Record<string, string> = { structure: '结构', history: '历史', branches: '分支', deps: '依赖', security: '安全' }
 
 function fmtTime(ms: number): string {
   const d = new Date(ms)
@@ -47,18 +45,18 @@ function clearSelection() {
   <div class="history-view">
     <div class="card">
       <div class="head-row">
-        <h2>扫描历史与对比</h2>
+        <h2>{{ t('history.title') }}</h2>
         <div class="head-actions">
-          <span class="dim">共 {{ store.history.length }} 条（最多保留 20 条）</span>
+          <span class="dim">{{ t('history.count') }} {{ store.history.length }} {{ t('history.countUnit') }}</span>
           <button v-if="store.history.length > 0" class="btn danger small" @click="store.clearHistory(); clearSelection()">
-            清空全部
+            {{ t('history.clearAll') }}
           </button>
         </div>
       </div>
 
       <div v-if="store.history.length === 0" class="empty">
-        <p>暂无扫描历史。</p>
-        <p class="dim">完成一次扫描后，报告会自动保存到此处，可用于跨次对比。</p>
+        <p>{{ t('history.empty') }}</p>
+        <p class="dim">{{ t('history.emptyHint') }}</p>
       </div>
 
       <div v-else class="history-list">
@@ -78,7 +76,7 @@ function clearSelection() {
             <div class="row-info">
               <div class="row-name">{{ entry.repoName }}</div>
               <div class="row-meta dim">
-                {{ fmtTime(entry.savedAt) }} · {{ entry.findingCount }} 项发现 · {{ entry.repoPath }}
+                {{ fmtTime(entry.savedAt) }} · {{ entry.findingCount }} {{ t('history.findingUnit') }} · {{ entry.repoPath }}
               </div>
             </div>
           </div>
@@ -88,16 +86,16 @@ function clearSelection() {
               :class="{ selected: baselineId === entry.id }"
               @click="setBaseline(entry.id)"
             >
-              基准
+              {{ t('history.baseline') }}
             </button>
             <button
               class="btn ghost tiny"
               :class="{ selected: targetId === entry.id }"
               @click="setTarget(entry.id)"
             >
-              对照
+              {{ t('history.target') }}
             </button>
-            <button class="btn danger tiny" @click="store.deleteHistory(entry.id)">删除</button>
+            <button class="btn danger tiny" @click="store.deleteHistory(entry.id)">{{ t('history.delete') }}</button>
           </div>
         </div>
       </div>
@@ -105,79 +103,79 @@ function clearSelection() {
 
     <div v-if="compare" class="card compare-panel">
       <div class="compare-head">
-        <h2>对比结果</h2>
-        <button class="btn ghost small" @click="clearSelection">清除选择</button>
+        <h2>{{ t('history.compareResult') }}</h2>
+        <button class="btn ghost small" @click="clearSelection">{{ t('history.clearSel') }}</button>
       </div>
 
       <div class="compare-summary">
         <div class="summary-item">
-          <div class="summary-label">基准</div>
+          <div class="summary-label">{{ t('history.baseline') }}</div>
           <div class="summary-value">{{ compare.baseline.repoName }}</div>
-          <div class="summary-sub dim">{{ fmtTime(compare.baseline.savedAt) }} · 得分 {{ compare.baseline.totalScore }}</div>
+          <div class="summary-sub dim">{{ fmtTime(compare.baseline.savedAt) }} · {{ t('history.score') }} {{ compare.baseline.totalScore }}</div>
         </div>
         <div class="summary-arrow">→</div>
         <div class="summary-item">
-          <div class="summary-label">对照</div>
+          <div class="summary-label">{{ t('history.target') }}</div>
           <div class="summary-value">{{ compare.target.repoName }}</div>
-          <div class="summary-sub dim">{{ fmtTime(compare.target.savedAt) }} · 得分 {{ compare.target.totalScore }}</div>
+          <div class="summary-sub dim">{{ fmtTime(compare.target.savedAt) }} · {{ t('history.score') }} {{ compare.target.totalScore }}</div>
         </div>
       </div>
 
       <div class="delta-row">
         <div class="delta-box" :class="compare.scoreDelta >= 0 ? 'positive' : 'negative'">
-          <span class="delta-label">总分变化</span>
+          <span class="delta-label">{{ t('history.scoreDelta') }}</span>
           <span class="delta-value">{{ compare.scoreDelta >= 0 ? '+' : '' }}{{ compare.scoreDelta }}</span>
         </div>
         <div class="delta-box" :class="compare.findingCountDelta <= 0 ? 'positive' : 'negative'">
-          <span class="delta-label">发现项变化</span>
+          <span class="delta-label">{{ t('history.findingDelta') }}</span>
           <span class="delta-value">{{ compare.findingCountDelta >= 0 ? '+' : '' }}{{ compare.findingCountDelta }}</span>
         </div>
         <div class="delta-box neutral">
-          <span class="delta-label">新增</span>
+          <span class="delta-label">{{ t('history.added') }}</span>
           <span class="delta-value">{{ compare.addedFindings.length }}</span>
         </div>
         <div class="delta-box neutral">
-          <span class="delta-label">消除</span>
+          <span class="delta-label">{{ t('history.resolved') }}</span>
           <span class="delta-value">{{ compare.resolvedFindings.length }}</span>
         </div>
         <div class="delta-box neutral">
-          <span class="delta-label">仍存在</span>
+          <span class="delta-label">{{ t('history.common') }}</span>
           <span class="delta-value">{{ compare.commonFindings.length }}</span>
         </div>
       </div>
 
       <div class="compare-sections">
         <div v-if="compare.addedFindings.length > 0" class="compare-section">
-          <h3 class="section-title added">新增发现（{{ compare.addedFindings.length }}）</h3>
+          <h3 class="section-title added">{{ t('history.addedFindings') }}（{{ compare.addedFindings.length }}）</h3>
           <div class="finding-list">
             <div v-for="f in compare.addedFindings" :key="f.id" class="mini-finding">
               <span class="sev-dot" :class="`sev-${f.severity}`"></span>
-              <span class="sev-tag" :class="`tag-${f.severity}`">{{ sevText[f.severity] }}</span>
-              <span class="cat-tag">{{ catText[f.category] }}</span>
+              <span class="sev-tag" :class="`tag-${f.severity}`">{{ t(`filter.${f.severity}`) }}</span>
+              <span class="cat-tag">{{ t(`filter.${f.category}`) }}</span>
               <span class="finding-title">{{ f.title }}</span>
             </div>
           </div>
         </div>
 
         <div v-if="compare.resolvedFindings.length > 0" class="compare-section">
-          <h3 class="section-title resolved">已消除（{{ compare.resolvedFindings.length }}）</h3>
+          <h3 class="section-title resolved">{{ t('history.resolvedFindings') }}（{{ compare.resolvedFindings.length }}）</h3>
           <div class="finding-list">
             <div v-for="f in compare.resolvedFindings" :key="f.id" class="mini-finding resolved">
               <span class="sev-dot" :class="`sev-${f.severity}`"></span>
-              <span class="sev-tag" :class="`tag-${f.severity}`">{{ sevText[f.severity] }}</span>
-              <span class="cat-tag">{{ catText[f.category] }}</span>
+              <span class="sev-tag" :class="`tag-${f.severity}`">{{ t(`filter.${f.severity}`) }}</span>
+              <span class="cat-tag">{{ t(`filter.${f.category}`) }}</span>
               <span class="finding-title">{{ f.title }}</span>
             </div>
           </div>
         </div>
 
         <div v-if="compare.commonFindings.length > 0" class="compare-section">
-          <h3 class="section-title common">仍存在（{{ compare.commonFindings.length }}）</h3>
+          <h3 class="section-title common">{{ t('history.commonFindings') }}（{{ compare.commonFindings.length }}）</h3>
           <div class="finding-list">
             <div v-for="f in compare.commonFindings" :key="f.id" class="mini-finding">
               <span class="sev-dot" :class="`sev-${f.severity}`"></span>
-              <span class="sev-tag" :class="`tag-${f.severity}`">{{ sevText[f.severity] }}</span>
-              <span class="cat-tag">{{ catText[f.category] }}</span>
+              <span class="sev-tag" :class="`tag-${f.severity}`">{{ t(`filter.${f.severity}`) }}</span>
+              <span class="cat-tag">{{ t(`filter.${f.category}`) }}</span>
               <span class="finding-title">{{ f.title }}</span>
             </div>
           </div>
@@ -187,20 +185,20 @@ function clearSelection() {
           v-if="compare.addedFindings.length === 0 && compare.resolvedFindings.length === 0 && compare.commonFindings.length === 0"
           class="no-diff dim"
         >
-          两次扫描的发现项完全一致，无差异。
+          {{ t('history.noDiff') }}
         </div>
       </div>
     </div>
 
     <div v-else-if="baselineId || targetId" class="card hint">
-      <p class="dim">请再选择一条作为{{ baselineId ? '对照' : '基准' }}，即可生成对比结果。</p>
+      <p class="dim">{{ t('history.hintSelect') }}{{ baselineId ? t('history.target') : t('history.baseline') }}{{ t('history.hintGen') }}</p>
       <p v-if="baselineId && targetId && baselineId === targetId" class="dim warn">
-        基准与对照不能为同一条记录。
+        {{ t('history.sameRecord') }}
       </p>
     </div>
 
     <div style="margin-top:20px; display:flex; justify-content:center; gap:12px;">
-      <button class="btn ghost" @click="store.setCurrentView(store.report ? 3 : 1)">← 返回</button>
+      <button class="btn ghost" @click="store.setCurrentView(store.report ? 3 : 1)">{{ t('history.back') }}</button>
     </div>
   </div>
 </template>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useScanStore } from '../stores/scan'
+import { useI18n } from '../i18n'
 import ScoreCard from './report/ScoreCard.vue'
 import RadarChart from '../components/RadarChart.vue'
 import DimLegend from './report/DimLegend.vue'
@@ -7,6 +8,7 @@ import FindingList from './report/FindingList.vue'
 import ExportRow from './report/ExportRow.vue'
 
 const store = useScanStore()
+const { t } = useI18n()
 </script>
 
 <template>
@@ -22,7 +24,7 @@ const store = useScanStore()
   <FindingList />
   <ExportRow />
   <div style="margin-top:20px; display:flex; justify-content:center;">
-    <button class="btn ghost" @click="store.resetToConnect()">← 重新选择仓库</button>
+    <button class="btn ghost" @click="store.resetToConnect()">{{ t('report.back') }}</button>
   </div>
 </template>
 

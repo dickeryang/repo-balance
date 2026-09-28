@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useScanStore } from '../../stores/scan'
+import { useI18n } from '../../i18n'
 
 const store = useScanStore()
+const { t } = useI18n()
 const toastMsg = ref('')
 
 async function doExport(format: string) {
   const result = await store.exportReport(format)
   if (result) {
-    toastMsg.value = `已导出 ${result.split(/[\\/]/).pop()}`
+    toastMsg.value = `${t('report.exported')} ${result.split(/[\\/]/).pop()}`
     setTimeout(() => { toastMsg.value = '' }, 3000)
   }
 }
@@ -16,7 +18,7 @@ async function doExport(format: string) {
 
 <template>
   <div class="export-row">
-    <span class="dim">导出报告（evidence 保持掩码）</span>
+    <span class="dim">{{ t('report.export') }}</span>
     <button class="btn ghost" @click="doExport('html')">⬇ HTML</button>
     <button class="btn ghost" @click="doExport('md')">⬇ Markdown</button>
     <button class="btn ghost" @click="doExport('json')">⬇ JSON</button>

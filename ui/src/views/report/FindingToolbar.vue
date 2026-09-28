@@ -1,21 +1,11 @@
 <script setup lang="ts">
 import { useScanStore } from '../../stores/scan'
+import { useI18n } from '../../i18n'
 const store = useScanStore()
+const { t } = useI18n()
 
-const severityFilters = [
-  { key: 'all', label: '全部' },
-  { key: 'critical', label: '严重' },
-  { key: 'warning', label: '警告' },
-  { key: 'info', label: '提示' },
-]
-
-const categoryFilters = [
-  { key: 'structure', label: '结构' },
-  { key: 'history', label: '历史' },
-  { key: 'branches', label: '分支' },
-  { key: 'deps', label: '依赖' },
-  { key: 'security', label: '安全' },
-]
+const severityKeys = ['all', 'critical', 'warning', 'info']
+const categoryKeys = ['structure', 'history', 'branches', 'deps', 'security']
 
 function countByFilter(key: string): number {
   if (!store.report) return 0
@@ -30,23 +20,23 @@ function countByFilter(key: string): number {
 <template>
   <div class="finding-toolbar">
     <button
-      v-for="f in severityFilters"
-      :key="f.key"
+      v-for="key in severityKeys"
+      :key="key"
       class="filter-chip"
-      :class="{ active: store.activeFilter === f.key }"
-      @click="store.setFilter(f.key)"
+      :class="{ active: store.activeFilter === key }"
+      @click="store.setFilter(key)"
     >
-      {{ f.label }} {{ countByFilter(f.key) }}
+      {{ t(`filter.${key}`) }} {{ countByFilter(key) }}
     </button>
     <span style="margin: 0 4px; color: var(--border);">|</span>
     <button
-      v-for="f in categoryFilters"
-      :key="f.key"
+      v-for="key in categoryKeys"
+      :key="key"
       class="filter-chip"
-      :class="{ active: store.activeFilter === f.key }"
-      @click="store.setFilter(f.key)"
+      :class="{ active: store.activeFilter === key }"
+      @click="store.setFilter(key)"
     >
-      {{ f.label }} {{ countByFilter(f.key) }}
+      {{ t(`filter.${key}`) }} {{ countByFilter(key) }}
     </button>
   </div>
 </template>
