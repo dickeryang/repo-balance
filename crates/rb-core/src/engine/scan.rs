@@ -6,6 +6,7 @@ use crate::checker::{
     merge_plans, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData,
 };
 use crate::git::GitRepo;
+use crate::ignore::IgnoreRule;
 use crate::model::finding::Severity;
 use crate::model::report::{ScanReport, Scores};
 use crate::Result;
@@ -76,6 +77,8 @@ pub fn scan_with_progress(
     let snapshot = repo.snapshot()?;
     report_progress("snapshot", 1, 1);
 
+    let ignore = IgnoreRule::load_from(std::path::Path::new(&snapshot.path));
+
     // plan 阶段：base 上下文收集全部检查器的切片请求。
     let mut ctx = ScanContext::base(&snapshot, config);
     let plans: Vec<_> = registry.list().iter().map(|c| c.plan(&ctx)).collect();
@@ -87,6 +90,10 @@ pub fn scan_with_progress(
             DataSlice::FileContents { pattern } if pattern == "all" => {
                 report_progress("workdir", 0, 0);
                 let metas = repo.workdir_file_metas()?;
+                let metas: Vec<_> = metas
+                    .into_iter()
+                    .filter(|m| !ignore.is_ignored(&m.path))
+                    .collect();
                 ctx.insert_slice(slice.clone(), SliceData::FileContents(metas));
                 report_progress("workdir", 1, 1);
             }
@@ -107,6 +114,10 @@ pub fn scan_with_progress(
                         .as_ref()
                         .map(|c| c as &dyn Fn(usize, usize)),
                 )?;
+                let blobs: Vec<_> = blobs
+                    .into_iter()
+                    .filter(|b| !ignore.is_ignored(&b.path))
+                    .collect();
                 ctx.insert_slice(slice.clone(), SliceData::FullHistory(blobs));
             }
             _ => {}
@@ -274,5 +285,41 @@ mod tests {
         }; 7];
         let scores = super::compute_scores(&findings);
         assert_eq!(scores.structure, 0);
+    }
+
+    /// `.repobalance-ignore` 规则生效：被忽略的大文件不产出 finding。
+    #[test]
+    fn 忽略规则_被忽略的大文件不产出finding() {
+        let mut t = TestRepo::init();
+        t.commit(&[("big.bin", &vec![0u8; 2_000_000])], "add big");
+        std::fs::write(
+            t.path().join(".repobalance-ignore"),
+            "*.bin\n",
+        )
+        .unwrap();
+        let mut registry = CheckerRegistry::new();
+        registry.register(Box::new(crate::checker::BigFilesChecker)).unwrap();
+        let report = scan(t.path(), &registry).unwrap();
+        assert!(
+            report.findings.is_empty(),
+            "被 .repobalance-ignore 忽略的大文件不应产出 finding"
+        );
+    }
+
+    /// 否定规则：`*.bin` 忽略但 `!keep.bin` 取消忽略，后者仍产出 finding。
+    #[test]
+    fn 忽略规则_否定规则取消忽略() {
+        let mut t = TestRepo::init();
+        t.commit(&[("keep.bin", &vec![0u8; 2_000_000])], "add keep");
+        std::fs::write(
+            t.path().join(".repobalance-ignore"),
+            "*.bin\n!keep.bin\n",
+        )
+        .unwrap();
+        let mut registry = CheckerRegistry::new();
+        registry.register(Box::new(crate::checker::BigFilesChecker)).unwrap();
+        let report = scan(t.path(), &registry).unwrap();
+        assert_eq!(report.findings.len(), 1);
+        assert!(report.findings[0].id.contains("keep.bin"));
     }
 }

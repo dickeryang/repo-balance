@@ -13,6 +13,7 @@ pub mod checker;
 pub mod engine;
 pub mod error;
 pub mod git;
+pub mod ignore;
 pub mod model;
 
 pub use error::RbError;

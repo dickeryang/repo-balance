@@ -39,6 +39,9 @@ const bigFilesEnabled = computed<boolean>({
       <span class="dim">MiB</span>
     </div>
     <p class="dim hint">配置保存在本地（localStorage），下次启动自动恢复</p>
+    <p class="dim hint">
+      在仓库根目录创建 <code>.repobalance-ignore</code> 可忽略特定路径（语法同 .gitignore）
+    </p>
   </div>
 </template>
 
