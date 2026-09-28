@@ -281,7 +281,7 @@ mod tests {
         let git = GitRepo::open(t.path()).unwrap();
         let snap = git.snapshot().unwrap();
         let workdir = git.workdir_file_metas().unwrap();
-        let history = git.history_blob_metas(64, None).unwrap();
+        let history = git.history_blob_metas(64, None, None).unwrap();
         let config = ScanConfig {
             big_file_threshold: 1,
         };

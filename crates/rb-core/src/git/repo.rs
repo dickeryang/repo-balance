@@ -162,17 +162,20 @@ impl GitRepo {
     /// 采集全部本地分支可达的历史 blob 元数据（spec 5.1.1.3）。
     ///
     /// 以 `refs/heads/*` 为多起点 revwalk、时间正序（TIME | REVERSE），
-    /// 提交按 `batch_size` 分批、rayon 并行处理（每批独立
+    /// 提交按 `batch_size` 分批、顺序处理（每批独立
     /// `Repository::open` 同一 workdir——`Repository` 是 Send 非 Sync，
     /// 不可跨线程共享句柄）；批内仅读对象头 `size()`，绝不读取内容；
     /// 单对象解析失败跳过继续（对象级容错），revwalk 建立失败透传
     /// [`RbError::Git`]（整仓级）。主线程按时间正序归并，同一路径同一
     /// blob 保留最早提交为「首次引入」语义；`batch_size` 为 0 时按 1 处理。
     /// `cancel_flag` 为 `Some` 时在每批完成后检查，用户取消则提前返回已采集部分。
+    /// `on_progress` 为 `Some` 时在历史采集开始与每批完成后回调
+    /// `(已完成提交数, 提交总数)`，供编排层上报细粒度进度。
     pub fn history_blob_metas(
         &self,
         batch_size: usize,
         cancel_flag: Option<&AtomicBool>,
+        on_progress: Option<&dyn Fn(usize, usize)>,
     ) -> Result<Vec<BlobMeta>> {
         let workdir = self.workdir_path()?;
 
@@ -215,6 +218,11 @@ impl GitRepo {
         // 改为顺序处理以在批次边界检查取消标志（大仓库场景下批次少，
         // 取消响应延迟可接受；后续可恢复并行 + 批间检查）。
         let width = batch_size.max(1);
+        let total_commits = commit_oids.len();
+        if let Some(cb) = on_progress {
+            cb(0, total_commits);
+        }
+        let mut processed_commits = 0usize;
         let mut batch_results: Vec<Vec<(String, String, u64, CommitSummary)>> = Vec::new();
         for batch in commit_oids.chunks(width) {
             if let Some(flag) = cancel_flag {
@@ -223,6 +231,10 @@ impl GitRepo {
                 }
             }
             batch_results.push(process_batch(&workdir, batch));
+            processed_commits += batch.len();
+            if let Some(cb) = on_progress {
+                cb(processed_commits, total_commits);
+            }
         }
 
         // 主线程按批序（时间正序）归并：同 (路径, blob) 保留最早提交。
@@ -413,7 +425,7 @@ mod tests {
         t.commit(&[("big.bin", &vec![0u8; 200_000])], "first");
         t.commit(&[("big.bin", &vec![0u8; 300_000])], "second");
         let git = GitRepo::open(t.path()).unwrap();
-        let blobs = git.history_blob_metas(64, None).unwrap();
+        let blobs = git.history_blob_metas(64, None, None).unwrap();
         let big_blobs: Vec<_> = blobs.iter().filter(|b| b.path == "big.bin").collect();
         assert_eq!(big_blobs.len(), 2);
         let earliest = big_blobs.iter().min_by_key(|b| b.first_commit.time).unwrap();
@@ -428,8 +440,8 @@ mod tests {
         t.commit(&[("b.txt", b"hi")], "c2");
         t.commit(&[("c.txt", b"hi")], "c3");
         let git = GitRepo::open(t.path()).unwrap();
-        let full = git.history_blob_metas(64, None).unwrap();
-        let batched = git.history_blob_metas(1, None).unwrap();
+        let full = git.history_blob_metas(64, None, None).unwrap();
+        let batched = git.history_blob_metas(1, None, None).unwrap();
         let mut full_pairs: Vec<_> = full.iter().map(|b| (b.path.clone(), b.size)).collect();
         let mut batched_pairs: Vec<_> = batched.iter().map(|b| (b.path.clone(), b.size)).collect();
         full_pairs.sort();
@@ -446,7 +458,7 @@ mod tests {
         t.checkout("old");
         t.commit(&[("big_old.bin", &vec![0u8; 200_000])], "big on old");
         let git = GitRepo::open(t.path()).unwrap();
-        let blobs = git.history_blob_metas(64, None).unwrap();
+        let blobs = git.history_blob_metas(64, None, None).unwrap();
         assert!(blobs.iter().any(|b| b.path == "big_old.bin"));
     }
 }

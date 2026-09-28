@@ -13,12 +13,25 @@ use crate::Result;
 /// 历史对象遍历的默认批次大小。
 const DEFAULT_BATCH_SIZE: usize = 64;
 
+/// 扫描进度事件载荷：引擎在各阶段边界经回调上报给编排层。
+///
+/// `stage` 为封闭阶段标识：`snapshot` / `workdir` / `history` / `check` / `done`；
+/// `done`/`total` 为阶段内进度，`total` 为 0 表示该阶段无确定总量。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScanProgress {
+    /// 阶段标识（封闭集，见结构体文档）。
+    pub stage: &'static str,
+    /// 阶段内已完成单元数。
+    pub done: usize,
+    /// 阶段内单元总数（0 表示无确定总量）。
+    pub total: usize,
+}
+
 /// 对 `path` 执行完整扫描。
 ///
-/// `cancel_flag` 为 `None` 时不检查取消；为 `Some` 时在批次边界（`history_blob_metas`
-/// 每批完成后）检查，用户取消后尽快中止。
+/// 不检查取消、不上报进度。
 pub fn scan(path: &std::path::Path, registry: &CheckerRegistry) -> Result<ScanReport> {
-    scan_with_cancel(path, registry, None)
+    scan_with_progress(path, registry, None, None)
 }
 
 /// 带取消检查的完整扫描。
@@ -30,11 +43,34 @@ pub fn scan_with_cancel(
     registry: &CheckerRegistry,
     cancel_flag: Option<&AtomicBool>,
 ) -> Result<ScanReport> {
+    scan_with_progress(path, registry, cancel_flag, None)
+}
+
+/// 带取消检查与进度回调的完整扫描。
+///
+/// `cancel_flag` 为 `Some` 时在批次边界检查；用户取消后 `history_blob_metas`
+/// 提前返回已采集的部分 blob，扫描继续完成（findings 可能不完整）。
+/// `on_progress` 为 `Some` 时在阶段边界（快照、工作区采集、历史采集批次、
+/// 逐检查器 check、完成）回调 [`ScanProgress`]，供编排层转发进度事件。
+pub fn scan_with_progress(
+    path: &std::path::Path,
+    registry: &CheckerRegistry,
+    cancel_flag: Option<&AtomicBool>,
+    on_progress: Option<&dyn Fn(ScanProgress)>,
+) -> Result<ScanReport> {
     let started_at = now_secs();
     let start = Instant::now();
 
+    let report_progress = |stage: &'static str, done: usize, total: usize| {
+        if let Some(cb) = on_progress {
+            cb(ScanProgress { stage, done, total });
+        }
+    };
+
+    report_progress("snapshot", 0, 0);
     let repo = GitRepo::open(path)?;
     let snapshot = repo.snapshot()?;
+    report_progress("snapshot", 1, 1);
 
     // plan 阶段：base 上下文收集全部检查器的切片请求。
     let config = ScanConfig::default();
@@ -46,23 +82,42 @@ pub fn scan_with_cancel(
     for slice in merged.slices() {
         match slice {
             DataSlice::FileContents { pattern } if pattern == "all" => {
+                report_progress("workdir", 0, 0);
                 let metas = repo.workdir_file_metas()?;
                 ctx.insert_slice(slice.clone(), SliceData::FileContents(metas));
+                report_progress("workdir", 1, 1);
             }
             DataSlice::FullHistory => {
-                let blobs = repo.history_blob_metas(DEFAULT_BATCH_SIZE, cancel_flag)?;
+                let history_cb = on_progress.map(|cb| {
+                    |done: usize, total: usize| {
+                        cb(ScanProgress {
+                            stage: "history",
+                            done,
+                            total,
+                        })
+                    }
+                });
+                let blobs = repo.history_blob_metas(
+                    DEFAULT_BATCH_SIZE,
+                    cancel_flag,
+                    history_cb
+                        .as_ref()
+                        .map(|c| c as &dyn Fn(usize, usize)),
+                )?;
                 ctx.insert_slice(slice.clone(), SliceData::FullHistory(blobs));
             }
             _ => {}
         }
     }
 
-    // check 阶段：逐检查器纯计算产出 findings。
-    let findings: Vec<_> = registry
-        .list()
-        .iter()
-        .flat_map(|c| c.check(&ctx))
-        .collect();
+    // check 阶段：逐检查器纯计算产出 findings，每个检查器完成即上报进度。
+    let total_checkers = registry.list().len();
+    report_progress("check", 0, total_checkers);
+    let mut findings = Vec::new();
+    for (i, checker) in registry.list().iter().enumerate() {
+        findings.extend(checker.check(&ctx));
+        report_progress("check", i + 1, total_checkers);
+    }
 
     // 评分：按各维度 finding 严重度扣分。
     let scores = compute_scores(&findings);
@@ -75,6 +130,7 @@ pub fn scan_with_cancel(
         duration_ms: start.elapsed().as_millis() as u64,
         engine_version: env!("CARGO_PKG_VERSION").to_owned(),
     };
+    report_progress("done", 1, 1);
     Ok(report)
 }
 
@@ -133,6 +189,50 @@ mod tests {
         let report = scan(t.path(), &registry).unwrap();
         assert!(report.findings.is_empty());
         assert_eq!(report.scores.total(), 100);
+    }
+
+    /// 进度回调：阶段序列以 snapshot 开头、done 结尾；history 阶段 done 单调不减。
+    #[test]
+    fn 进度回调_阶段序列完整且历史进度单调不减() {
+        let mut t = TestRepo::init();
+        t.commit(&[("a.txt", b"hi")], "init");
+        t.commit(&[("b.txt", b"hi")], "second");
+        let mut registry = CheckerRegistry::new();
+        registry.register(Box::new(crate::checker::BigFilesChecker)).unwrap();
+
+        let mut events = Vec::new();
+        super::scan_with_progress(t.path(), &registry, None, Some(&|p| events.push(p))).unwrap();
+
+        let stages: Vec<&str> = events.iter().map(|p| p.stage).collect();
+        assert_eq!(stages.first(), Some(&"snapshot"), "首个阶段应为 snapshot");
+        assert_eq!(stages.last(), Some(&"done"), "末个阶段应为 done");
+        assert!(stages.contains(&"workdir"));
+        assert!(stages.contains(&"history"));
+        assert!(stages.contains(&"check"));
+
+        // 历史阶段 done 单调不减，且最终 done == total。
+        let history: Vec<_> = events.iter().filter(|p| p.stage == "history").collect();
+        for w in history.windows(2) {
+            assert!(w[0].done <= w[1].done, "history done 应单调不减");
+        }
+        let last_history = history.last().unwrap();
+        assert_eq!(last_history.done, last_history.total);
+
+        // check 阶段最终 done == 检查器总数（此处仅注册 big-files 一个）。
+        let check_last = events.iter().rev().find(|p| p.stage == "check").unwrap();
+        assert_eq!(check_last.done, 1);
+        assert_eq!(check_last.total, 1);
+    }
+
+    /// 旧 API scan/scan_with_cancel 委托后行为不变（不上报进度也能完成扫描）。
+    #[test]
+    fn 旧入口委托_无回调时扫描正常() {
+        let mut t = TestRepo::init();
+        t.commit(&[("a.txt", b"hi")], "init");
+        let mut registry = CheckerRegistry::new();
+        registry.register(Box::new(crate::checker::BigFilesChecker)).unwrap();
+        let report = super::scan_with_cancel(t.path(), &registry, None).unwrap();
+        assert!(report.findings.len() <= 2);
     }
 
     /// 评分按严重度扣分：1 条 Critical 结构维度 finding → structure = 85，其余维度 100。

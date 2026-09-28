@@ -28,12 +28,68 @@ pub async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, S
 }
 
 /// 获取仓库快照信息（提交数/分支数/文件数等）。
+///
+/// 异步命令：快照需全量遍历提交与文件树，大仓库耗时明显，
+/// 放入 spawn_blocking 执行，避免同步命令阻塞主线程冻结 UI。
 #[tauri::command]
-pub fn repo_info(path: String) -> Result<RepoSnapshotDto, String> {
-    let path = PathBuf::from(path);
-    let repo = rb_core::git::GitRepo::open(&path).map_err(map_error)?;
-    let snap = repo.snapshot().map_err(map_error)?;
+pub async fn repo_info(path: String) -> Result<RepoSnapshotDto, String> {
+    let path_buf = PathBuf::from(&path);
+    let snap = tauri::async_runtime::spawn_blocking(move || {
+        let repo = rb_core::git::GitRepo::open(&path_buf).map_err(map_error)?;
+        repo.snapshot().map_err(map_error)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     Ok(RepoSnapshotDto::from(snap))
+}
+
+/// 将引擎阶段事件映射为前端进度事件 payload。
+///
+/// 中文阶段名 + 估算百分比（0-100），字段与前端 `ProgressEvent` 类型
+/// 一一对应（camelCase：stage/checkerId/done/total/percent）。
+fn progress_payload(p: rb_core::engine::scan::ScanProgress) -> serde_json::Value {
+    let stage_cn = match p.stage {
+        "snapshot" => "初始化",
+        "workdir" => "工作区采集",
+        "history" => "历史采集",
+        "check" => "检查",
+        _ => "完成",
+    };
+    let percent = estimate_percent(p.stage, p.done, p.total);
+    serde_json::json!({
+        "stage": stage_cn,
+        "checkerId": "",
+        "done": p.done,
+        "total": p.total,
+        "percent": percent,
+    })
+}
+
+/// 按阶段将 (done, total) 映射为 0-100 的估算百分比。
+///
+/// 分段：初始化 0-5 → 工作区采集 5-10 → 历史采集 10-90（按提交比例线性）→
+/// 检查 90-99 → 完成 100。
+fn estimate_percent(stage: &str, done: usize, total: usize) -> u8 {
+    match stage {
+        "snapshot" => 5,
+        "workdir" => 10,
+        "history" => {
+            if total == 0 {
+                10
+            } else {
+                let ratio = (done as f64 / total as f64).min(1.0);
+                (10.0 + 80.0 * ratio).round() as u8
+            }
+        }
+        "check" => {
+            if total == 0 {
+                90
+            } else {
+                (90.0 + 9.0 * (done as f64 / total as f64)).round() as u8
+            }
+        }
+        _ => 100,
+    }
 }
 
 /// 启动扫描：异步包装同步 scan（spawn_blocking 避免占死 tokio worker），
@@ -47,42 +103,32 @@ pub async fn start_scan(
     let path_buf = PathBuf::from(&path);
     rb_core::git::GitRepo::open(&path_buf).map_err(map_error)?;
 
-    if state.is_scanning() {
+    // CAS 领取扫描权：复位取消标志并原子置位 scanning，拒绝并发扫描。
+    if !state.begin_scan() {
         return Err("已有扫描正在进行，请先等待完成或取消".to_owned());
     }
-    state.reset();
-    state.set_scanning(true);
 
     let app_handle = app.clone();
     let cancel_flag = state.cancel_flag();
     let cancel_flag_arc = Arc::clone(&cancel_flag);
 
     tauri::async_runtime::spawn(async move {
-        // 进度事件：分阶段 emit scan-progress（扫描前 → 历史采集中 → 扫描完成）。
-        // 历史采集是主要耗时阶段，细粒度进度需要引擎内部回调（后续迭代）。
-        let _ = app_handle.emit(
-            "scan-progress",
-            serde_json::json!({"stage": "初始化", "done": 0, "total": 0, "cancelled": false}),
-        );
-
         let app_for_blocking = app_handle.clone();
         let result = tauri::async_runtime::spawn_blocking(move || {
-            let _ = app_for_blocking.emit(
-                "scan-progress",
-                serde_json::json!({"stage": "历史采集", "done": 0, "total": 0, "cancelled": false}),
-            );
+            // 进度事件由引擎阶段回调统一驱动（快照 → 工作区采集 →
+            // 历史采集批次级细粒度进度 → 检查器逐个完成 → 完成）。
+            let app_for_progress = app_for_blocking.clone();
+            let progress_cb = move |p: rb_core::engine::scan::ScanProgress| {
+                let _ = app_for_progress.emit("scan-progress", progress_payload(p));
+            };
             let mut registry = rb_core::checker::CheckerRegistry::new();
             let _ = registry.register(Box::new(rb_core::checker::BigFilesChecker));
-            let report = rb_core::engine::scan::scan_with_cancel(
+            rb_core::engine::scan::scan_with_progress(
                 &path_buf,
                 &registry,
                 Some(cancel_flag_arc.as_ref()),
-            )?;
-            let _ = app_for_blocking.emit(
-                "scan-progress",
-                serde_json::json!({"stage": "完成", "done": 1, "total": 1, "cancelled": false}),
-            );
-            Ok(report)
+                Some(&progress_cb as &dyn Fn(rb_core::engine::scan::ScanProgress)),
+            )
         })
         .await;
 
@@ -187,11 +233,33 @@ fn report_to_markdown(report: &ScanReportDto) -> String {
         md.push_str("未发现问题，仓库健康 ✓\n");
     } else {
         for f in &report.findings {
-            md.push_str(&format!("### [{:?}] {}\n\n", f.severity, f.title));
-            md.push_str(&format!("- **类别**: {:?}\n", f.category));
+            md.push_str(&format!("### [{}] {}\n\n", severity_cn(&f.severity), f.title));
+            md.push_str(&format!("- **类别**: {}\n", category_cn(&f.category)));
             md.push_str(&format!("- **证据**: {}\n", f.evidence));
             md.push_str(&format!("- **建议**: {}\n\n", f.suggestion));
         }
     }
     md
+}
+
+/// 严重程度的中文文案（与前端展示口径一致）。
+fn severity_cn(severity: &rb_core::model::finding::Severity) -> &'static str {
+    use rb_core::model::finding::Severity;
+    match severity {
+        Severity::Critical => "严重",
+        Severity::Warning => "警告",
+        Severity::Info => "提示",
+    }
+}
+
+/// 检查维度的中文文案（与前端展示口径一致）。
+fn category_cn(category: &rb_core::model::finding::Category) -> &'static str {
+    use rb_core::model::finding::Category;
+    match category {
+        Category::Structure => "结构",
+        Category::History => "历史",
+        Category::Branches => "分支",
+        Category::Deps => "依赖",
+        Category::Security => "安全",
+    }
 }

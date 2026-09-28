@@ -37,12 +37,15 @@ function scorePolygon(): string {
 function labelPos(index: number): { x: number; y: number } {
   return vertex(index, R + 18)
 }
+
+/** 五个维度顶点方向的轴线端点（index 0-4，顶部轴线对应 index 0）。 */
+const axisPoints = Array.from({ length: 5 }, (_, i) => vertex(i, R))
 </script>
 
 <template>
   <svg width="300" height="300" viewBox="0 0 300 300">
     <polygon v-for="r in [0.25, 0.5, 0.75, 1.0]" :key="r" :points="gridPolygon(R * r)" fill="none" stroke="var(--border)" stroke-width="1" />
-    <line v-for="i in 4" :key="i" :x1="CX" :y1="CY" :x2="vertex(i, R).x" :y2="vertex(i, R).y" stroke="var(--border)" stroke-width="1" />
+    <line v-for="(v, i) in axisPoints" :key="i" :x1="CX" :y1="CY" :x2="v.x" :y2="v.y" stroke="var(--border)" stroke-width="1" />
     <polygon :points="scorePolygon()" fill="rgba(79,140,255,0.25)" stroke="var(--accent)" stroke-width="2" />
     <circle v-for="(p, i) in points" :key="i" :cx="vertex(i, (p.score ?? 0) / 100 * R).x" :cy="vertex(i, (p.score ?? 0) / 100 * R).y" r="3" fill="var(--accent)" />
     <text v-for="(p, i) in points" :key="'label-' + i" :x="labelPos(i).x" :y="labelPos(i).y" text-anchor="middle" dominant-baseline="middle" fill="var(--text-dim)" font-size="11">

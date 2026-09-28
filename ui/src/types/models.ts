@@ -56,9 +56,11 @@ export interface ScanReport {
 
 export interface ProgressEvent {
   stage: string
-  checkerId: string
+  checkerId?: string
   done: number
   total: number
+  /** 0-100 估算进度百分比（后端按阶段统一计算，历史采集阶段按提交比例推进）。 */
+  percent?: number
 }
 
 export type CheckerStatus = 'pending' | 'running' | 'done'

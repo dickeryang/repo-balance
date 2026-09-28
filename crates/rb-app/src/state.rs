@@ -32,10 +32,15 @@ impl ScanState {
         self.cancel_flag.store(true, Ordering::Relaxed);
     }
 
-    /// 重置取消标志与扫描标记（`start_scan` 前调用，防止上一轮残留）。
-    pub fn reset(&self) {
+    /// 原子领取扫描权：复位取消标志，并以 CAS 确认 `scanning` false→true。
+    ///
+    /// 返回 `false` 表示已有扫描在进行（原「检查-复位-置位」三步非原子，
+    /// 并发 start_scan 可能同时通过检查；本方法以 compare_exchange 消除竞态）。
+    pub fn begin_scan(&self) -> bool {
         self.cancel_flag.store(false, Ordering::Relaxed);
-        self.scanning.store(false, Ordering::Relaxed);
+        self.scanning
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
+            .is_ok()
     }
 
     pub fn is_scanning(&self) -> bool {
