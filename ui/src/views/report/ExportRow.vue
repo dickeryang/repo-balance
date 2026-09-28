@@ -17,6 +17,7 @@ async function doExport(format: string) {
 <template>
   <div class="export-row">
     <span class="dim">导出报告（evidence 保持掩码）</span>
+    <button class="btn ghost" @click="doExport('html')">⬇ HTML</button>
     <button class="btn ghost" @click="doExport('md')">⬇ Markdown</button>
     <button class="btn ghost" @click="doExport('json')">⬇ JSON</button>
   </div>

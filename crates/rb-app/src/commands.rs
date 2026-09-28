@@ -183,7 +183,8 @@ pub async fn export_report(
             "JSON",
         ),
         "md" => (report_to_markdown(&report), "md", "Markdown"),
-        _ => return Err("不支持的导出格式，仅支持 md 或 json".to_owned()),
+        "html" => (report_to_html(&report), "html", "HTML"),
+        _ => return Err("不支持的导出格式，仅支持 md、json 或 html".to_owned()),
     };
 
     let (tx, rx) = oneshot::channel();
@@ -262,4 +263,258 @@ fn category_cn(category: &rb_core::model::finding::Category) -> &'static str {
         Category::Deps => "依赖",
         Category::Security => "安全",
     }
+}
+
+/// 严重程度对应的主题色（与前端 --critical/--warning/--info 一致）。
+fn severity_color(severity: &rb_core::model::finding::Severity) -> &'static str {
+    use rb_core::model::finding::Severity;
+    match severity {
+        Severity::Critical => "#ff5c6c",
+        Severity::Warning => "#ffb44d",
+        Severity::Info => "#58c4a3",
+    }
+}
+
+/// HTML 文本转义：& < > " → 实体，避免证据/建议破坏 HTML 结构。
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Unix 时间戳（秒）→ "YYYY-MM-DD HH:MM:SS UTC"（Howard Hinnant civil_from_days）。
+fn format_time_utc(epoch: i64) -> String {
+    if epoch < 0 {
+        return format!("Unix 时间戳: {epoch}");
+    }
+    let secs = epoch as u64;
+    let days = (secs / 86400) as i64;
+    let sod = secs % 86400;
+    let hour = sod / 3600;
+    let min = (sod % 3600) / 60;
+    let sec = sod % 60;
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
+        year, m, d, hour, min, sec
+    )
+}
+
+/// 生成内联 SVG 雷达图（复刻前端 RadarChart.vue 几何，含网格/轴线/评分多边形/标签）。
+fn radar_svg(points: &[crate::dto::RadarPointDto]) -> String {
+    const CX: f64 = 150.0;
+    const CY: f64 = 150.0;
+    const R: f64 = 105.0;
+    const PI: f64 = std::f64::consts::PI;
+    let angle = |i: usize| -> f64 { -PI / 2.0 + (i as f64) * 2.0 * PI / 5.0 };
+    let vertex = |i: usize, r: f64| -> (f64, f64) {
+        let a = angle(i);
+        (CX + r * a.cos(), CY + r * a.sin())
+    };
+
+    let mut svg = String::from(
+        "<svg width=\"300\" height=\"300\" viewBox=\"0 0 300 300\" xmlns=\"http://www.w3.org/2000/svg\">",
+    );
+
+    for &ratio in &[0.25_f64, 0.5, 0.75, 1.0] {
+        let pts: Vec<String> = (0..5)
+            .map(|i| {
+                let (x, y) = vertex(i, R * ratio);
+                format!("{:.1},{:.1}", x, y)
+            })
+            .collect();
+        svg.push_str(&format!(
+            "<polygon points=\"{}\" fill=\"none\" stroke=\"#2a3550\" stroke-width=\"1\"/>",
+            pts.join(" ")
+        ));
+    }
+    for i in 0..5 {
+        let (x, y) = vertex(i, R);
+        svg.push_str(&format!(
+            "<line x1=\"{CX:.1}\" y1=\"{CY:.1}\" x2=\"{x:.1}\" y2=\"{y:.1}\" stroke=\"#2a3550\" stroke-width=\"1\"/>"
+        ));
+    }
+
+    if !points.is_empty() {
+        let score_pts: Vec<String> = points
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let r = (p.score.unwrap_or(0) as f64 / 100.0) * R;
+                let (x, y) = vertex(i, r);
+                format!("{:.1},{:.1}", x, y)
+            })
+            .collect();
+        svg.push_str(&format!(
+            "<polygon points=\"{}\" fill=\"rgba(79,140,255,0.25)\" stroke=\"#4f8cff\" stroke-width=\"2\"/>",
+            score_pts.join(" ")
+        ));
+        for (i, p) in points.iter().enumerate() {
+            let r = (p.score.unwrap_or(0) as f64 / 100.0) * R;
+            let (x, y) = vertex(i, r);
+            svg.push_str(&format!(
+                "<circle cx=\"{x:.1}\" cy=\"{y:.1}\" r=\"3\" fill=\"#4f8cff\"/>"
+            ));
+            let (lx, ly) = vertex(i, R + 18.0);
+            let score_text = p
+                .score
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "N/A".to_string());
+            svg.push_str(&format!(
+                "<text x=\"{lx:.1}\" y=\"{ly:.1}\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"#8b95ab\" font-size=\"11\">{} {}</text>",
+                html_escape(&p.name),
+                score_text
+            ));
+        }
+    }
+    svg.push_str("</svg>");
+    svg
+}
+
+/// 将扫描报告格式化为自包含 HTML（暗色主题 + 内联 SVG 雷达图快照）。
+///
+/// 无外部依赖、无外链资源，可独立分享；evidence 经 HTML 转义保持掩码。
+fn report_to_html(report: &ScanReportDto) -> String {
+    let total_score: u8 = {
+        let scores: Vec<u8> = report.radar_points.iter().filter_map(|p| p.score).collect();
+        if scores.is_empty() {
+            0
+        } else {
+            (scores.iter().map(|s| *s as u32).sum::<u32>() / scores.len() as u32) as u8
+        }
+    };
+    let total_class = if total_score >= 80 {
+        "good"
+    } else if total_score >= 60 {
+        "mid"
+    } else {
+        "bad"
+    };
+
+    let mut dim_bars = String::new();
+    for p in &report.radar_points {
+        let pct = p.score.unwrap_or(0);
+        let bar_color = if pct >= 80 {
+            "#4fd07a"
+        } else if pct >= 60 {
+            "#ffb44d"
+        } else {
+            "#ff5c6c"
+        };
+        let score_text = p
+            .score
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "N/A".to_string());
+        dim_bars.push_str(&format!(
+            "<div class=\"dim-row\"><span>{}</span><div class=\"bar\"><i style=\"width:{}%;background:{}\"></i></div><span class=\"sc\">{}</span><span class=\"fc\">{} 条</span></div>",
+            html_escape(&p.name),
+            pct,
+            bar_color,
+            score_text,
+            p.finding_count
+        ));
+    }
+
+    let mut findings_html = String::new();
+    if report.findings.is_empty() {
+        findings_html.push_str("<p class=\"healthy\">未发现问题，仓库健康 ✓</p>");
+    } else {
+        for f in &report.findings {
+            findings_html.push_str(&format!(
+                "<div class=\"finding\"><div class=\"finding-head\"><span class=\"sev-tag\" style=\"color:{};background:rgba(0,0,0,0.2)\">[{}]</span><span class=\"cat-tag\">{}</span><span class=\"finding-title\">{}</span></div><div class=\"finding-body\"><div class=\"detail-box\"><div class=\"lbl\">证据（🔒 掩码展示）</div><div class=\"evidence\">{}</div></div><div class=\"detail-box\"><div class=\"lbl\">修复建议</div><div class=\"suggestion\">{}</div></div></div></div>",
+                severity_color(&f.severity),
+                severity_cn(&f.severity),
+                category_cn(&f.category),
+                html_escape(&f.title),
+                html_escape(&f.evidence),
+                html_escape(&f.suggestion),
+            ));
+        }
+    }
+
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>仓衡扫描报告 · {}</title>
+<style>
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{ background:#0f1420; color:#e6ebf5; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; padding:32px; }}
+.container {{ max-width:960px; margin:0 auto; }}
+h1 {{ font-size:24px; margin-bottom:8px; }}
+h2 {{ font-size:18px; margin:24px 0 12px; }}
+.meta {{ color:#8b95ab; font-size:13px; margin-bottom:20px; }}
+.report-head {{ display:flex; gap:20px; margin-bottom:24px; }}
+.score-card {{ background:#171e2e; border:1px solid #2a3550; border-radius:12px; padding:22px; width:240px; text-align:center; flex-shrink:0; }}
+.score-big {{ font-size:64px; font-weight:800; line-height:1.1; }}
+.score-big.good {{ color:#4fd07a; }} .score-big.mid {{ color:#ffb44d; }} .score-big.bad {{ color:#ff5c6c; }}
+.score-label {{ color:#8b95ab; font-size:12px; margin-top:4px; }}
+.radar-panel {{ background:#171e2e; border:1px solid #2a3550; border-radius:12px; padding:22px; flex:1; display:flex; gap:16px; align-items:center; }}
+.radar-wrap {{ width:300px; height:300px; flex-shrink:0; }}
+.dim-legend {{ flex:1; display:flex; flex-direction:column; gap:8px; }}
+.dim-row {{ display:flex; align-items:center; gap:10px; background:#1c2438; border:1px solid #2a3550; border-radius:8px; padding:9px 14px; font-size:13px; }}
+.bar {{ flex:1; height:6px; border-radius:999px; background:#2a3550; overflow:hidden; }}
+.bar i {{ display:block; height:100%; border-radius:999px; }}
+.sc {{ width:34px; text-align:right; font-weight:700; }}
+.fc {{ font-size:11px; color:#8b95ab; width:52px; text-align:right; }}
+.card {{ background:#171e2e; border:1px solid #2a3550; border-radius:12px; padding:22px; }}
+.finding {{ background:#171e2e; border:1px solid #2a3550; border-radius:10px; margin-bottom:10px; overflow:hidden; }}
+.finding-head {{ display:flex; align-items:center; gap:12px; padding:13px 16px; }}
+.sev-tag {{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:5px; }}
+.cat-tag {{ font-size:11px; color:#8b95ab; border:1px solid #2a3550; padding:2px 8px; border-radius:5px; }}
+.finding-title {{ font-weight:600; font-size:13px; flex:1; }}
+.finding-body {{ padding:4px 16px 16px; border-top:1px solid #2a3550; display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:12px; }}
+.detail-box {{ background:#1c2438; border-radius:8px; padding:12px 14px; }}
+.lbl {{ font-size:11px; color:#8b95ab; margin-bottom:6px; }}
+.evidence {{ font-family:"SF Mono",Menlo,monospace; font-size:12px; color:#ffd9dd; word-break:break-all; line-height:1.7; white-space:pre-wrap; }}
+.suggestion {{ font-size:13px; line-height:1.7; border-left:3px solid #4f8cff; background:rgba(79,140,255,0.15); padding:10px 14px; border-radius:0 8px 8px 0; }}
+.healthy {{ color:#4fd07a; text-align:center; padding:16px; }}
+footer {{ color:#8b95ab; font-size:12px; text-align:center; margin-top:32px; }}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>仓衡 · Git 仓库健康度体检报告</h1>
+<div class="meta">仓库：{} · 引擎版本 {} · 扫描时间 {} · 耗时 {}ms{}</div>
+<div class="report-head">
+<div class="score-card">
+<div class="score-big {}">{}</div>
+<div class="score-label">五维平均分（0~100）</div>
+</div>
+<div class="radar-panel">
+<div class="radar-wrap">{}</div>
+<div class="dim-legend">{}</div>
+</div>
+</div>
+<h2>发现的问题（{} 条）</h2>
+<div class="card">{}</div>
+<footer>由仓衡 RepoBalance 生成 · evidence 已掩码 · 报告自包含可离线分享</footer>
+</div>
+</body>
+</html>"#,
+        html_escape(&report.repo_path),
+        html_escape(&report.repo_path),
+        html_escape(&report.engine_version),
+        format_time_utc(report.started_at),
+        report.duration_ms,
+        if report.cancelled { " · 扫描已取消（显示已完成部分）" } else { "" },
+        total_class,
+        total_score,
+        radar_svg(&report.radar_points),
+        dim_bars,
+        report.findings.len(),
+        findings_html,
+    )
 }
