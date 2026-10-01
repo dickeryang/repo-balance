@@ -1,11 +1,10 @@
 //! IPC 命令层：五条命令桥接前端与 rb-core。
 //!
-//! start_scan 异步包装同步 engine::scan，完成后 emit scan-done；
-//! cancel_scan 设置 AtomicBool，引擎在批次边界消费该标志并提前返回，
-//! 扫描结束后 emit scan-cancelled 通知前端。
+//! start_scan 异步包装同步 engine::scan，完成后 emit scan-done
+//! （取消的扫描推送 cancelled=true 的部分报告，同样经 scan-done）；
+//! 失败 emit scan-error。
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -106,7 +105,7 @@ pub async fn start_scan(
 
     let app_handle = app.clone();
     let cancel_flag = state.cancel_flag();
-    let cancel_flag_arc = Arc::clone(&cancel_flag);
+    let cancel_flag_arc = cancel_flag.clone();
     let cfg = config.unwrap_or_default();
 
     tauri::async_runtime::spawn(async move {
@@ -143,12 +142,13 @@ pub async fn start_scan(
 
         match result {
             Ok(Ok(report)) => {
-                let dto = ScanReportDto::from(report);
+                // 取消时引擎返回的是已采集的部分报告：置 cancelled 标记后
+                // 仍经 scan-done 推送，前端照常渲染「部分结果」报告页。
+                let mut dto = ScanReportDto::from(report);
                 if was_cancelled {
-                    let _ = app_handle.emit("scan-cancelled", "扫描已取消".to_owned());
-                } else {
-                    let _ = app_handle.emit("scan-done", dto);
+                    dto.cancelled = true;
                 }
+                let _ = app_handle.emit("scan-done", dto);
             }
             Ok(Err(e)) => {
                 let _ = app_handle.emit("scan-error", map_error(e));
@@ -161,10 +161,10 @@ pub async fn start_scan(
     Ok(())
 }
 
-/// 取消扫描（stub：设置 AtomicBool，当前 engine::scan 不消费该标志）。
+/// 取消扫描（设置 AtomicBool 取消标志）。
 ///
-/// stub 语义：取消请求记录但不立即生效；
-/// 待 D3-2 落地后扫描编排层检测标志并产出 PartialReport 经 scan-cancelled 事件推送。
+/// engine::scan 编排层轮询该标志，检测到后中止扫描，
+/// 已完成部分作为部分报告经 scan-done 事件推送（cancelled=true）。
 #[tauri::command]
 pub fn cancel_scan(state: State<'_, ScanState>) -> Result<(), String> {
     if !state.is_scanning() {

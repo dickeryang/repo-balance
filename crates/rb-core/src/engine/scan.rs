@@ -214,10 +214,11 @@ mod tests {
         let mut registry = CheckerRegistry::new();
         registry.register(Box::new(crate::checker::BigFilesChecker)).unwrap();
 
-        let mut events = Vec::new();
+        let events = std::sync::Mutex::new(Vec::new());
         let config = crate::checker::ScanConfig::default();
-        super::scan_with_progress(t.path(), &registry, None, Some(&|p| events.push(p)), &config)
+        super::scan_with_progress(t.path(), &registry, None, Some(&|p| events.lock().unwrap().push(p)), &config)
             .unwrap();
+        let events = events.into_inner().unwrap();
 
         let stages: Vec<&str> = events.iter().map(|p| p.stage).collect();
         assert_eq!(stages.first(), Some(&"snapshot"), "首个阶段应为 snapshot");

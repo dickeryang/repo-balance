@@ -1,4 +1,32 @@
+/* ============================================================
+   主题变量：浅色为默认（:root），深色通过 html.dark 覆盖。
+   主题切换由 src/theme.ts 控制（localStorage + 跟随系统）。
+   ============================================================ */
+
 :root {
+  /* 浅色调色板 */
+  --bg: #f4f6fb;
+  --bg-panel: #ffffff;
+  --bg-card: #eef2f9;
+  --bg-hover: #e4eaf4;
+  --border: #d4dce9;
+  --text: #1f2633;
+  --text-dim: #66718a;
+  --accent: #3472dd;
+  --accent-soft: rgba(52, 114, 221, 0.12);
+  --critical: #dc4256;
+  --warning: #c07a17;
+  --info: #1e9070;
+  --ok: #2b9e58;
+  /* 证据文本（等宽字体内容色） */
+  --evidence: #a8404f;
+  --critical-border: rgba(220, 66, 86, 0.45);
+  --critical-soft: rgba(220, 66, 86, 0.1);
+  --radius: 12px;
+  font-size: 14px;
+}
+
+html.dark {
   --bg: #0f1420;
   --bg-panel: #171e2e;
   --bg-card: #1c2438;
@@ -12,8 +40,9 @@
   --warning: #ffb44d;
   --info: #58c4a3;
   --ok: #4fd07a;
-  --radius: 12px;
-  font-size: 14px;
+  --evidence: #ffd9dd;
+  --critical-border: rgba(255, 92, 108, 0.45);
+  --critical-soft: rgba(255, 92, 108, 0.1);
 }
 
 * {
@@ -27,12 +56,27 @@ body {
   color: var(--text);
   font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
+/* ============================================================
+   布局：宽度始终撑满窗口（全屏/放大时 100%），仅保留两侧留白
+   ============================================================ */
 #app {
-  max-width: 1180px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
   padding: 0 24px 60px;
+}
+@media (min-width: 1920px) {
+  #app {
+    padding: 0 40px 60px;
+  }
+}
+@media (max-width: 720px) {
+  #app {
+    padding: 0 16px 40px;
+  }
 }
 
 .dim {
@@ -79,14 +123,45 @@ button {
 .btn.danger {
   background: transparent;
   color: var(--critical);
-  border: 1px solid rgba(255, 92, 108, 0.45);
+  border: 1px solid var(--critical-border);
 }
 .btn.danger:hover {
-  background: rgba(255, 92, 108, 0.1);
+  background: var(--critical-soft);
 }
 .btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* ============================================================
+   Element Plus 适配：浅色 / 深色两套，对齐应用自身配色
+   ============================================================ */
+:root {
+  --el-bg-color: var(--bg-panel);
+  --el-bg-color-overlay: var(--bg-panel);
+  --el-fill-color-blank: var(--bg-panel);
+  --el-fill-color-light: var(--bg-card);
+  --el-border-color: var(--border);
+  --el-border-color-light: var(--border);
+  --el-border-color-lighter: var(--border);
+  --el-text-color-primary: var(--text);
+  --el-text-color-regular: var(--text);
+  --el-color-primary: var(--accent);
+  --el-font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.el-button:not(.el-button--primary):not(.el-button--danger) {
+  --el-button-bg-color: transparent;
+  --el-button-border-color: var(--border);
+  --el-button-hover-bg-color: var(--bg-hover);
+  --el-button-hover-border-color: var(--border);
+  --el-button-text-color: var(--text);
+  color: var(--text);
+}
+.el-message {
+  --el-message-bg-color: var(--bg-hover);
+  --el-message-border-color: var(--accent);
+  --el-message-text-color: var(--text);
 }
 
 .card {
@@ -98,7 +173,7 @@ button {
 
 .sev-critical {
   background: var(--critical);
-  box-shadow: 0 0 8px rgba(255, 92, 108, 0.6);
+  box-shadow: 0 0 8px var(--accent-soft);
 }
 .sev-warning {
   background: var(--warning);
@@ -109,15 +184,15 @@ button {
 
 .tag-critical {
   color: var(--critical);
-  background: rgba(255, 92, 108, 0.12);
+  background: color-mix(in srgb, var(--critical) 12%, transparent);
 }
 .tag-warning {
   color: var(--warning);
-  background: rgba(255, 180, 77, 0.12);
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
 }
 .tag-info {
   color: var(--info);
-  background: rgba(88, 196, 163, 0.12);
+  background: color-mix(in srgb, var(--info) 12%, transparent);
 }
 
 .sev-tag,

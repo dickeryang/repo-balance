@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import * as ipc from '../ipc/commands'
-import { onScanDone, onScanProgress, onScanCancelled, onScanError } from '../ipc/events'
+import { onScanDone, onScanProgress, onScanError } from '../ipc/events'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import type { RepoSnapshot, ScanReport, CheckerFeedRow, ProgressEvent, ScanConfig, HistoryEntry, HistoryCompare, Finding } from '../types/models'
 
@@ -119,28 +119,21 @@ export const useScanStore = defineStore('scan', () => {
     unlistenScanEvents()
     const stale = () => token !== scanToken
     unlisteners = [
-      // scan-done：写入报告、保存历史并跳转报告页
+      // scan-done：写入报告并跳转报告页；仅完成的扫描保存历史。
+      // 取消的扫描后端会推送 cancelled=true 的部分报告，同样经此入口渲染，但不入历史。
       onScanDone((r) => {
         if (stale()) return
         unlistenScanEvents()
         report.value = r
+        isCancelled.value = r.cancelled
         isScanning.value = false
-        saveToHistory(r)
+        if (!r.cancelled) saveToHistory(r)
         currentView.value = 3
       }),
       // scan-progress：更新进度
       onScanProgress((p) => {
         if (stale()) return
         progress.value = p
-      }),
-      // scan-cancelled：用户取消，导航到报告页展示已取消状态
-      onScanCancelled((error) => {
-        if (stale()) return
-        unlistenScanEvents()
-        isCancelled.value = true
-        isScanning.value = false
-        repoError.value = error
-        currentView.value = 3
       }),
       // scan-error：扫描失败，回接入页并展示错误
       onScanError((error) => {

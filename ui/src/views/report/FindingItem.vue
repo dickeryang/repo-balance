@@ -106,7 +106,7 @@ function isOpen(): boolean {
 .evidence {
   font-family: "SF Mono", Menlo, monospace;
   font-size: 12px;
-  color: #ffd9dd;
+  color: var(--evidence);
   word-break: break-all;
   line-height: 1.7;
 }

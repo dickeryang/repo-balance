@@ -13,10 +13,10 @@ const { t } = useI18n()
     <div class="progress-head">
       <h2>{{ t('scan.title') }} <span class="dim" style="font-weight:400;">{{ store.selectedPath?.split(/[\\/]/).pop() }}</span></h2>
       <div class="head-actions">
-        <button class="btn ghost" @click="store.switchRepo()">{{ t('scan.back') }}</button>
-        <button class="btn danger" :disabled="store.isCancelled" @click="store.cancelScan()">
+        <el-button size="small" @click="store.switchRepo()">{{ t('scan.back') }}</el-button>
+        <el-button size="small" type="danger" plain :disabled="store.isCancelled" @click="store.cancelScan()">
           {{ store.isCancelled ? t('scan.cancelling') : t('scan.cancel') }}
-        </button>
+        </el-button>
       </div>
     </div>
     <ProgressBar />

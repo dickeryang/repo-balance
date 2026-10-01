@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { RadarPoint } from '../../types/models'
+import type { RadarPoint } from '../types/models'
 import { useI18n } from '../i18n'
 
 const props = defineProps<{ points: RadarPoint[] }>()
@@ -55,3 +55,11 @@ const axisPoints = Array.from({ length: 5 }, (_, i) => vertex(i, R))
     </text>
   </svg>
 </template>
+
+<style scoped>
+svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+</style>

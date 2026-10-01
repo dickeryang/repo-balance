@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { useScanStore } from '../stores/scan'
 import { useI18n } from '../i18n'
+import { useTheme } from '../theme'
 
 const store = useScanStore()
 const { t, toggleLocale } = useI18n()
+const { theme, toggleTheme } = useTheme()
 </script>
 
 <template>
@@ -17,15 +19,24 @@ const { t, toggleLocale } = useI18n()
     </div>
     <div class="spacer"></div>
     <div class="local-badge">{{ t('app.localBadge') }}</div>
-    <button class="btn ghost switch-btn" @click="toggleLocale">
+    <el-button
+      size="small"
+      round
+      :title="theme === 'dark' ? t('app.themeToLight') : t('app.themeToDark')"
+      :aria-label="theme === 'dark' ? t('app.themeToLight') : t('app.themeToDark')"
+      @click="toggleTheme"
+    >
+      {{ theme === 'dark' ? '☀️' : '🌙' }}
+    </el-button>
+    <el-button size="small" round @click="toggleLocale">
       {{ t('app.langToggle') }}
-    </button>
-    <button v-if="store.selectedPath" class="btn ghost switch-btn" @click="store.switchRepo()">
+    </el-button>
+    <el-button v-if="store.selectedPath" size="small" round @click="store.switchRepo()">
       {{ t('app.switchRepo') }}
-    </button>
-    <button class="btn ghost switch-btn" @click="store.setCurrentView(4)">
+    </el-button>
+    <el-button size="small" round @click="store.setCurrentView(4)">
       {{ t('app.history') }}
-    </button>
+    </el-button>
     <div class="steps">
       <div class="step" :class="{ active: store.currentView === 1, done: store.currentView > 1 }">{{ t('app.step1') }}</div>
       <div class="step-arrow">→</div>
@@ -42,7 +53,8 @@ const { t, toggleLocale } = useI18n()
 .topbar {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: nowrap;
+  gap: 12px;
   padding: 18px 0 14px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 24px;
@@ -83,9 +95,11 @@ const { t, toggleLocale } = useI18n()
   padding: 4px 12px;
   background: rgba(88, 196, 163, 0.08);
 }
-.switch-btn {
+.topbar .el-button {
   font-size: 12px;
   padding: 5px 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .steps {
   display: flex;
@@ -98,6 +112,22 @@ const { t, toggleLocale } = useI18n()
   padding: 5px 12px;
   border-radius: 999px;
   border: 1px solid var(--border);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.logo {
+  flex-shrink: 0;
+}
+/* 窗口不够宽时依次收起：副标题 → 步骤条，保证按钮行不换行 */
+@media (max-width: 1240px) {
+  .logo .sub {
+    display: none;
+  }
+}
+@media (max-width: 1080px) {
+  .steps {
+    display: none;
+  }
 }
 .step.active {
   color: #fff;

@@ -15,6 +15,8 @@ const zh: Record<string, string> = {
   'app.step3': '③ 报告仪表盘',
   'app.step4': '④ 历史对比',
   'app.langToggle': 'EN',
+  'app.themeToLight': '☀️ 浅色模式',
+  'app.themeToDark': '🌙 深色模式',
 
   'connect.title': '选择要体检的 Git 仓库',
   'connect.desc': '路径仅来自系统目录选择对话框，应用不会直接触达文件系统之外的数据',
@@ -70,6 +72,8 @@ const zh: Record<string, string> = {
   'report.exported': '已导出',
   'report.back': '← 重新选择仓库',
   'report.dimCount': '条',
+  'report.fullscreen': '⛶ 全屏',
+  'report.exitFullscreen': '退出全屏',
 
   'filter.all': '全部',
   'filter.critical': '严重',
@@ -120,6 +124,8 @@ const en: Record<string, string> = {
   'app.step3': '③ Dashboard',
   'app.step4': '④ Compare',
   'app.langToggle': '中文',
+  'app.themeToLight': '☀️ Light Mode',
+  'app.themeToDark': '🌙 Dark Mode',
 
   'connect.title': 'Select a Git Repository to Scan',
   'connect.desc': 'Path comes only from the system directory picker; the app never reaches beyond the file system',
@@ -175,6 +181,8 @@ const en: Record<string, string> = {
   'report.exported': 'Exported',
   'report.back': '← Reselect Repository',
   'report.dimCount': '',
+  'report.fullscreen': '⛶ Fullscreen',
+  'report.exitFullscreen': 'Exit Fullscreen',
 
   'filter.all': 'All',
   'filter.critical': 'Critical',
