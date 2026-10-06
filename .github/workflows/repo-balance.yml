@@ -25,11 +25,11 @@ jobs:
         working-directory: crates
 
       - name: 运行仓衡体检
-        run: crates/target/release/rb scan . --ci
+        run: target/release/rb scan . --ci
 
       - name: 上传 JSON 报告
         if: always()
-        run: crates/target/release/rb scan . --json > repo-balance-report.json
+        run: target/release/rb scan . --json > repo-balance-report.json
 
       - uses: actions/upload-artifact@v4
         if: always()
