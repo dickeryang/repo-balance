@@ -2,6 +2,16 @@
 
 用华为云码道 CodeArts 代码智能体独立开发一个跨平台桌面应用「仓衡 · Git 仓库健康度体检台」，对本地 Git 仓库做结构化健康体检：大文件、僵尸分支、提交习惯、依赖健康、敏感信息残留扫描，输出可导出的体检报告。
 
+## 演示
+
+**选择仓库并启动体检：**
+
+![选择仓库演示](docs/repobalance-git-demo-repo-select.gif)
+
+**扫描历史对比（新增/消除的问题项）：**
+
+![历史对比演示](docs/repobalance-git-demo-history-compare.gif)
+
 ## 技术栈
 
 | 层 | 技术 |
