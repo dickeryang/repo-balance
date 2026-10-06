@@ -34,6 +34,10 @@ jobs:
         with:
           workspaces: crates
 
+      - name: 安装前端依赖
+        run: npm install
+        working-directory: ui
+
       - name: 打包 Tauri 应用
         uses: tauri-apps/tauri-action@v0
         env:
