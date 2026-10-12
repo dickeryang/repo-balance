@@ -91,7 +91,7 @@ cargo tauri build
 
 此命令依次执行：
 1. `npm run build`（前端产出 `ui/dist/`）
-2. `cargo build --release -p rb-app`（Rust 编译优化）
+2. `cargo build --release -p rb-app --features custom-protocol`（Rust 编译优化，内嵌前端资源）
 3. 打包为平台安装包
 
 产物位于 `target/release/bundle/`：
@@ -114,10 +114,14 @@ cd ui && npm run build
 ### 仅构建 Rust 二进制（不打包安装包）
 
 ```bash
-cargo build --release -p rb-app
+cargo build --release -p rb-app --features custom-protocol
 ```
 
-产出 `target/release/rb-app.exe`（Windows），需配合 `ui/dist/` 前端资源运行。
+产出 `target/release/rb-app`（Windows 为 `rb-app.exe`），前端资源已内嵌，可直接运行。
+
+> ⚠️ 必须带 `--features custom-protocol`。缺省时 tauri 编译为 dev 模式
+> （`tauri-build` 置 `cfg(dev)`），不内嵌前端资源而改从 `devUrl`
+> （`http://localhost:5173`）加载，无 dev server 时界面全白。
 
 ## CLI 模式（无需 GUI）
 

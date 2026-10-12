@@ -6,6 +6,12 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[features]
+# 启用后 tauri 走 custom-protocol（内嵌前端资源）；未启用时编译为 dev 模式，
+# 前端改从 devUrl 加载（需 vite dev server 在 5173 运行），直接跑二进制会白屏。
+# `cargo tauri build` 会自动启用；纯 cargo release 构建必须显式加 --features custom-protocol。
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build.workspace = true
 
