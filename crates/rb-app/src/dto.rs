@@ -83,18 +83,36 @@ pub struct ProgressEventDto {
 pub struct ScanConfigDto {
     /// 大文件判定阈值（字节），默认 1 MiB。
     pub big_file_threshold: u64,
+    /// 僵尸分支「超 N 天未活跃」阈值（天），默认 90。
+    #[serde(default = "default_zombie_branch_days")]
+    pub zombie_branch_days: u64,
     /// 启用的检查器 id 列表（空表示全部启用）。
     pub enabled_checkers: Vec<String>,
+}
+
+/// [`ScanConfigDto::zombie_branch_days`] 的 serde 缺省值（90 天）。
+fn default_zombie_branch_days() -> u64 {
+    90
 }
 
 impl Default for ScanConfigDto {
     fn default() -> Self {
         Self {
             big_file_threshold: 1_048_576,
-            enabled_checkers: vec!["big-files".to_owned()],
+            zombie_branch_days: default_zombie_branch_days(),
+            enabled_checkers: ALL_CHECKER_IDS.iter().map(|s| s.to_string()).collect(),
         }
     }
 }
+
+/// 全部内置检查器 id（与 rb-core 注册顺序一致）。
+pub const ALL_CHECKER_IDS: [&str; 5] = [
+    "big-files",
+    "secrets",
+    "zombie-branches",
+    "commit-habits",
+    "deps-health",
+];
 
 /// 完整扫描报告 DTO。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,11 +173,11 @@ impl From<Finding> for FindingDto {
 impl From<Scores> for ScoresDto {
     fn from(s: Scores) -> Self {
         Self {
-            structure: Some(s.structure),
-            history: Some(s.history),
-            branches: Some(s.branches),
-            deps: Some(s.deps),
-            security: Some(s.security),
+            structure: s.structure,
+            history: s.history,
+            branches: s.branches,
+            deps: s.deps,
+            security: s.security,
         }
     }
 }
@@ -179,11 +197,11 @@ fn build_radar_points(scores: &Scores, findings: &[Finding]) -> Vec<RadarPointDt
         .iter()
         .map(|(cat, key, name)| {
             let score = match cat {
-                Category::Structure => Some(scores.structure),
-                Category::History => Some(scores.history),
-                Category::Branches => Some(scores.branches),
-                Category::Deps => Some(scores.deps),
-                Category::Security => Some(scores.security),
+                Category::Structure => scores.structure,
+                Category::History => scores.history,
+                Category::Branches => scores.branches,
+                Category::Deps => scores.deps,
+                Category::Security => scores.security,
             };
             let finding_count = findings.iter().filter(|f| f.category == *cat).count();
             RadarPointDto {
@@ -213,6 +231,7 @@ impl From<ScanReport> for ScanReportDto {
 }
 
 #[cfg(test)]
+#[allow(non_snake_case)]
 mod tests {
     use super::*;
 
@@ -250,11 +269,11 @@ mod tests {
                 suggestion: "加入 gitignore".into(),
             }],
             scores: Scores {
-                structure: 80,
-                history: 100,
-                branches: 100,
-                deps: 100,
-                security: 100,
+                structure: Some(80),
+                history: Some(100),
+                branches: Some(100),
+                deps: Some(100),
+                security: Some(100),
             },
             started_at: 1,
             duration_ms: 100,
@@ -272,6 +291,54 @@ mod tests {
         assert_eq!(structure_point.finding_count, 1);
         let history_point = dto.radar_points.iter().find(|p| p.key == "history").unwrap();
         assert_eq!(history_point.finding_count, 0);
+    }
+
+    /// 未覆盖维度（None）在雷达点上保持 N/A 而非 0。
+    #[test]
+    fn scan_report_dto_未覆盖维度为None() {
+        let report = ScanReport {
+            repo_path: "/tmp/demo".into(),
+            findings: vec![],
+            scores: Scores {
+                structure: Some(80),
+                history: None,
+                branches: None,
+                deps: None,
+                security: None,
+            },
+            started_at: 1,
+            duration_ms: 100,
+            engine_version: "0.1.0".into(),
+        };
+        let dto = ScanReportDto::from(report);
+        let history_point = dto.radar_points.iter().find(|p| p.key == "history").unwrap();
+        assert_eq!(history_point.score, None);
+        assert_eq!(dto.scores.history, None);
+        assert_eq!(dto.scores.structure, Some(80));
+    }
+
+    /// ScanConfigDto 默认启用全部五个检查器，僵尸分支阈值 90 天。
+    #[test]
+    fn scan_config_dto_默认启用全部检查器() {
+        let cfg = ScanConfigDto::default();
+        assert_eq!(cfg.big_file_threshold, 1_048_576);
+        assert_eq!(cfg.zombie_branch_days, 90);
+        assert_eq!(cfg.enabled_checkers.len(), ALL_CHECKER_IDS.len());
+        for id in ALL_CHECKER_IDS {
+            assert!(cfg.enabled_checkers.contains(&id.to_owned()), "缺少检查器 {id}");
+        }
+    }
+
+    /// ScanConfigDto 反序列化缺省 zombieBranchDays 时回退 90。
+    #[test]
+    fn scan_config_dto_反序列化缺省回退() {
+        let cfg: ScanConfigDto =
+            serde_json::from_str(r#"{"bigFileThreshold":2048,"enabledCheckers":["big-files"]}"#)
+                .unwrap();
+        assert_eq!(cfg.big_file_threshold, 2048);
+        assert_eq!(cfg.zombie_branch_days, 90);
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(json.contains("\"zombieBranchDays\""), "{json}");
     }
 
     #[test]

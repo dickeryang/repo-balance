@@ -5,18 +5,26 @@
 //! 单一命名空间导出。
 
 pub mod big_files;
+pub mod commit_habits;
 pub mod context;
+pub mod deps_health;
 pub mod noop;
 pub mod plan;
+pub mod secrets;
+pub mod zombie_branches;
 
 use crate::error::RbError;
 use crate::model::finding::{Category, Finding};
 use crate::Result;
 
 pub use big_files::BigFilesChecker;
+pub use commit_habits::CommitHabitsChecker;
 pub use context::{ScanConfig, ScanContext, SliceData};
+pub use deps_health::DepsHealthChecker;
 pub use noop::NoopChecker;
 pub use plan::{merge_plans, DataSlice, ScanPlan};
+pub use secrets::SecretsChecker;
+pub use zombie_branches::ZombieBranchesChecker;
 
 /// 单个检查器：声明所需数据切片（plan），基于就绪切片纯计算产出结论（check）。
 ///

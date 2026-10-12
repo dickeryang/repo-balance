@@ -18,6 +18,9 @@ impl TestRepo {
     pub fn init() -> Self {
         let dir = TempDir::new().unwrap();
         let repo = Repository::init(dir.path()).unwrap();
+        // 统一初始分支为 main（libgit2 默认 master；与演示夹具/主流约定一致）。
+        // 仓库尚无提交时 set_head 仅写符号引用，首条提交即落 refs/heads/main。
+        let _ = repo.set_head("refs/heads/main");
         Self {
             dir,
             repo,

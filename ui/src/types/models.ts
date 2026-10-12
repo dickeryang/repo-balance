@@ -61,15 +61,28 @@ export interface ProgressEvent {
   total: number
   /** 0-100 估算进度百分比（后端按阶段统一计算，历史采集阶段按提交比例推进）。 */
   percent?: number
+  /** 检查器产出的 finding 数（check 阶段完成事件携带；进入事件为 null/undefined）。 */
+  findingCount?: number | null
 }
 
 /** 扫描配置：用户可调整大文件阈值与启用检查器集合。 */
 export interface ScanConfig {
   /** 大文件判定阈值（字节）。 */
   bigFileThreshold: number
+  /** 僵尸分支「超 N 天未活跃」判定阈值（天）。 */
+  zombieBranchDays: number
   /** 启用的检查器 id 列表（空表示全部启用）。 */
   enabledCheckers: string[]
 }
+
+/** 全部内置检查器 id（与后端注册顺序一致）。 */
+export const ALL_CHECKER_IDS = [
+  'big-files',
+  'secrets',
+  'zombie-branches',
+  'commit-habits',
+  'deps-health',
+] as const
 
 export type CheckerStatus = 'pending' | 'running' | 'done'
 

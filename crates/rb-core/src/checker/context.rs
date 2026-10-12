@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::checker::plan::DataSlice;
-use crate::model::slice_meta::{BlobMeta, FileMeta};
+use crate::model::slice_meta::{BlobMeta, BranchMeta, DepFileMeta, FileContent};
 use crate::model::snapshot::RepoSnapshot;
 
 /// 扫描全局配置载体；具体配置项由各检查器话术逐步追加字段扩展（spec 6.3.3）。
@@ -17,27 +17,41 @@ pub struct ScanConfig {
     /// 导致默认配置下全仓文件命中大文件判定。
     #[serde(default)]
     pub big_file_threshold: u64,
+
+    /// 僵尸分支「超 N 天未活跃」判定阈值（天），默认 90。
+    #[serde(default = "default_zombie_branch_days")]
+    pub zombie_branch_days: u64,
+}
+
+/// [`ScanConfig::zombie_branch_days`] 的 serde 缺省值（90 天）。
+fn default_zombie_branch_days() -> u64 {
+    90
 }
 
 impl Default for ScanConfig {
     fn default() -> Self {
         Self {
             big_file_threshold: 1_048_576,
+            zombie_branch_days: default_zombie_branch_days(),
         }
     }
 }
 
 /// 切片采集结果载荷（封闭枚举，与 [`DataSlice`] 请求一一对应）。
 ///
-/// 载荷均为强类型元数据视图，不含任何文件内容字节（>50MB 零内容读取的
-/// 结构级保证）；其余切片（WorkingTree / BranchGraph / DependencyFiles）
-/// 的载荷变体归 scan_engine 编排话术后续追加。
+/// 载荷均为强类型视图：文件内容切片携带受预算约束的文本内容
+/// （[`FileContent::content`] 为 `None` 表示未读取，结构元数据始终齐全），
+/// 其余切片为纯元数据视图，不含 blob 内容字节。
 #[derive(Debug, Clone)]
 pub enum SliceData {
-    /// 文件内容切片的元数据视图（FileContents 请求的采集结果）。
-    FileContents(Vec<FileMeta>),
+    /// 文件内容切片的采集结果（FileContents 请求）：路径 + 大小 + 文本内容。
+    FileContents(Vec<FileContent>),
     /// 全量历史的 blob 元数据视图（FullHistory 请求的采集结果）。
     FullHistory(Vec<BlobMeta>),
+    /// 本地分支拓扑视图（BranchGraph 请求的采集结果）。
+    BranchGraph(Vec<BranchMeta>),
+    /// 依赖清单/锁定文件元数据视图（DependencyFiles 请求的采集结果）。
+    DependencyFiles(Vec<DepFileMeta>),
 }
 
 /// Checker 在 plan / check 两阶段共享的只读上下文（spec 5.3）。
@@ -130,6 +144,20 @@ mod tests {
     #[test]
     fn 默认配置_大文件阈值为1MiB() {
         assert_eq!(ScanConfig::default().big_file_threshold, 1_048_576);
+    }
+
+    /// 僵尸分支默认阈值为 90 天。
+    #[test]
+    fn 默认配置_僵尸分支阈值为90天() {
+        assert_eq!(ScanConfig::default().zombie_branch_days, 90);
+    }
+
+    /// 反序列化缺省时僵尸分支阈值回退 90（旧配置兼容）。
+    #[test]
+    fn 配置反序列化_缺省僵尸分支阈值回退90() {
+        let cfg: ScanConfig = serde_json::from_str(r#"{"big_file_threshold":2048}"#).unwrap();
+        assert_eq!(cfg.big_file_threshold, 2048);
+        assert_eq!(cfg.zombie_branch_days, 90);
     }
 
     /// insert_slice 注入后就绪并可取回载荷；未注入切片仍为未就绪。

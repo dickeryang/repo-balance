@@ -4,8 +4,13 @@ import * as ipc from '../ipc/commands'
 import { onScanDone, onScanProgress, onScanError } from '../ipc/events'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import type { RepoSnapshot, ScanReport, CheckerFeedRow, ProgressEvent, ScanConfig, HistoryEntry, HistoryCompare, Finding } from '../types/models'
+import { ALL_CHECKER_IDS } from '../types/models'
 
-const DEFAULT_CONFIG: ScanConfig = { bigFileThreshold: 1_048_576, enabledCheckers: ['big-files'] }
+const DEFAULT_CONFIG: ScanConfig = {
+  bigFileThreshold: 1_048_576,
+  zombieBranchDays: 90,
+  enabledCheckers: [...ALL_CHECKER_IDS],
+}
 const HISTORY_KEY = 'rb-scan-history'
 const HISTORY_MAX = 20
 
@@ -127,13 +132,33 @@ export const useScanStore = defineStore('scan', () => {
         report.value = r
         isCancelled.value = r.cancelled
         isScanning.value = false
+        // 收尾未收到完成事件的检查器行（如取消时中断在 check 阶段）。
+        checkerFeed.value = checkerFeed.value.map((row) =>
+          row.status === 'done' ? row : { ...row, status: 'done' },
+        )
         if (!r.cancelled) saveToHistory(r)
         currentView.value = 3
       }),
-      // scan-progress：更新进度
+      // scan-progress：更新进度；check 阶段按 checkerId 维护检查器 feed
       onScanProgress((p) => {
         if (stale()) return
         progress.value = p
+        if (p.stage === 'check' && p.checkerId) {
+          const rows = [...checkerFeed.value]
+          let row = rows.find((r) => r.checkerId === p.checkerId)
+          if (!row) {
+            row = { checkerId: p.checkerId, status: 'pending', findingCount: 0 }
+            rows.push(row)
+          }
+          // 完成事件携带 findingCount（number）；进入事件为 null/undefined。
+          if (typeof p.findingCount === 'number') {
+            row.status = 'done'
+            row.findingCount = p.findingCount
+          } else {
+            row.status = 'running'
+          }
+          checkerFeed.value = rows
+        }
       }),
       // scan-error：扫描失败，回接入页并展示错误
       onScanError((error) => {
@@ -151,7 +176,13 @@ export const useScanStore = defineStore('scan', () => {
     isCancelled.value = false
     report.value = null
     progress.value = null
-    checkerFeed.value = []
+    // 初始化检查器 feed：按启用列表（空 = 全部）预置待运行行，
+    // 扫描开始后由 check 阶段进度事件驱动 running → done。
+    const ids =
+      scanConfig.value.enabledCheckers.length > 0
+        ? scanConfig.value.enabledCheckers
+        : [...ALL_CHECKER_IDS]
+    checkerFeed.value = ids.map((id) => ({ checkerId: id, status: 'pending', findingCount: 0 }))
     const token = ++scanToken
     listenScanEvents(token)
     try {

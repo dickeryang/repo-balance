@@ -2,14 +2,55 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::model::slice_meta::{BlobMeta, FileMeta};
+use crate::model::slice_meta::{
+    BlobMeta, BranchMeta, DepFileKind, DepFileMeta, Ecosystem, FileContent, FileMeta,
+};
 use crate::model::snapshot::{CommitSummary, RepoSnapshot};
 use crate::{error::RbError, Result};
-
 
 /// `git2::Repository` 的只读门面。外界不接触任何 `git2` 类型。
 pub struct GitRepo {
     repo: git2::Repository,
+}
+
+/// 工作目录遍历结果（内部类型，不外泄）。
+struct WorkdirFile {
+    /// 相对仓库根的路径（统一正斜杠）。
+    rel: String,
+    /// 绝对路径。
+    abs: std::path::PathBuf,
+    /// 字节大小。
+    size: u64,
+}
+
+/// 二进制判定：前 8 KiB 含 NUL 字节即视为二进制（与 git 的探测口径一致）。
+fn is_binary(bytes: &[u8]) -> bool {
+    bytes.iter().take(8192).any(|b| *b == 0)
+}
+
+/// 按文件名识别依赖清单/锁定文件及其生态；非依赖文件返回 None。
+fn classify_dep_file(file_name: &str) -> Option<(Ecosystem, DepFileKind)> {
+    Some(match file_name {
+        "Cargo.toml" => (Ecosystem::Rust, DepFileKind::Manifest),
+        "Cargo.lock" => (Ecosystem::Rust, DepFileKind::Lock),
+        "package.json" => (Ecosystem::JavaScript, DepFileKind::Manifest),
+        "package-lock.json" | "yarn.lock" | "pnpm-lock.yaml" => {
+            (Ecosystem::JavaScript, DepFileKind::Lock)
+        }
+        "pyproject.toml" | "requirements.txt" | "Pipfile" => {
+            (Ecosystem::Python, DepFileKind::Manifest)
+        }
+        "poetry.lock" | "uv.lock" | "Pipfile.lock" => (Ecosystem::Python, DepFileKind::Lock),
+        "go.mod" => (Ecosystem::Go, DepFileKind::Manifest),
+        "go.sum" => (Ecosystem::Go, DepFileKind::Lock),
+        "Gemfile" => (Ecosystem::Ruby, DepFileKind::Manifest),
+        "Gemfile.lock" => (Ecosystem::Ruby, DepFileKind::Lock),
+        "composer.json" => (Ecosystem::Php, DepFileKind::Manifest),
+        "composer.lock" => (Ecosystem::Php, DepFileKind::Lock),
+        "pom.xml" | "build.gradle" | "build.gradle.kts" => (Ecosystem::Java, DepFileKind::Manifest),
+        "gradle.lockfile" => (Ecosystem::Java, DepFileKind::Lock),
+        _ => return None,
+    })
 }
 
 impl GitRepo {
@@ -99,6 +140,7 @@ impl GitRepo {
                 summary: commit.summary().unwrap_or_default().to_owned(),
                 author: commit.author().name().unwrap_or_default().to_owned(),
                 time: commit.time().seconds(),
+                time_offset: commit.time().offset_minutes(),
             });
         }
         Ok(commits)
@@ -126,8 +168,54 @@ impl GitRepo {
     /// 覆盖 tracked 与未跟踪文件、跳过 `.git` 目录；仅读取元数据，
     /// 全程不读取任何文件内容（spec 4.1.2）。
     pub fn workdir_file_metas(&self) -> Result<Vec<FileMeta>> {
+        let files = self.walk_workdir_files()?;
+        Ok(files
+            .into_iter()
+            .map(|f| FileMeta {
+                path: f.rel,
+                size: f.size,
+            })
+            .collect())
+    }
+
+    /// 采集工作区文件内容视图：路径 + 大小 + 文本内容（受预算约束）。
+    ///
+    /// 预算口径（编排层传入，防 pathological 仓库读爆内存/耗时）：
+    /// - 单文件超过 `per_file_cap` 字节 → `content = None`（仅元数据）；
+    /// - 全仓累计读取达到 `total_budget` 字节 → 后续文件 `content = None`；
+    /// - 前 8 KiB 含 NUL 字节判定为二进制 → `content = None`；
+    /// - UTF-8 解码失败按 lossy 处理（替换字符），不阻断扫描。
+    pub fn workdir_file_contents(
+        &self,
+        per_file_cap: u64,
+        total_budget: u64,
+    ) -> Result<Vec<FileContent>> {
+        let files = self.walk_workdir_files()?;
+        let mut spent = 0u64;
+        let mut out = Vec::with_capacity(files.len());
+        for f in files {
+            let mut content = None;
+            if f.size <= per_file_cap && spent < total_budget {
+                if let Ok(bytes) = std::fs::read(&f.abs) {
+                    if !is_binary(&bytes) {
+                        content = Some(String::from_utf8_lossy(&bytes).into_owned());
+                        spent += bytes.len() as u64;
+                    }
+                }
+            }
+            out.push(FileContent {
+                path: f.rel,
+                size: f.size,
+                content,
+            });
+        }
+        Ok(out)
+    }
+
+    /// 遍历工作目录（跳过 .git），返回（相对路径, 绝对路径, 字节数）。
+    fn walk_workdir_files(&self) -> Result<Vec<WorkdirFile>> {
         let workdir = self.workdir_path()?;
-        let mut metas = Vec::new();
+        let mut files = Vec::new();
         let mut stack = vec![workdir.clone()];
         while let Some(dir) = stack.pop() {
             let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -147,16 +235,116 @@ impl GitRepo {
                     stack.push(path);
                 } else if let Ok(meta) = entry.metadata() {
                     if let Ok(rel) = path.strip_prefix(&workdir) {
-                        metas.push(FileMeta {
-                            path: rel.to_string_lossy().replace('\\', "/"),
+                        files.push(WorkdirFile {
+                            rel: rel.to_string_lossy().replace('\\', "/"),
+                            abs: path,
                             size: meta.len(),
                         });
                     }
                 }
             }
         }
-        metas.sort_by(|a, b| a.path.cmp(&b.path));
-        Ok(metas)
+        files.sort_by(|a, b| a.rel.cmp(&b.rel));
+        Ok(files)
+    }
+
+    /// 采集本地分支拓扑：tip 提交摘要 + 合并可达性 + 远端追踪 + 是否当前分支。
+    ///
+    /// HEAD 不存在（空仓库）时 `is_merged` 全部为 false（无合并基准）。
+    pub fn branch_graph(&self) -> Result<Vec<BranchMeta>> {
+        let head_oid = self.repo.head().ok().and_then(|h| h.peel_to_commit().ok()).map(|c| c.id());
+        let branch_iter = self
+            .repo
+            .branches(Some(git2::BranchType::Local))
+            .map_err(|e| RbError::Git(e.to_string()))?;
+        let mut out = Vec::new();
+        for item in branch_iter {
+            let (branch, _) = item.map_err(|e| RbError::Git(e.to_string()))?;
+            let Some(name) = branch
+                .name()
+                .map_err(|e| RbError::Git(e.to_string()))?
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            let Some(tip_oid) = branch.get().target() else {
+                continue;
+            };
+            let tip_commit = match self.repo.find_commit(tip_oid) {
+                Ok(c) => CommitSummary {
+                    id: c.id().to_string(),
+                    summary: c.summary().unwrap_or_default().to_owned(),
+                    author: c.author().name().unwrap_or_default().to_owned(),
+                    time: c.time().seconds(),
+                    time_offset: c.time().offset_minutes(),
+                },
+                Err(_) => continue,
+            };
+            // 已合并判定：tip 与 HEAD 的 merge_base 即 tip 本身。
+            let is_merged = match head_oid {
+                Some(head) if head != tip_oid => self
+                    .repo
+                    .merge_base(tip_oid, head)
+                    .map(|base| base == tip_oid)
+                    .unwrap_or(false),
+                _ => false,
+            };
+            let has_upstream = branch.upstream().is_ok();
+            let is_current = branch.is_head();
+            out.push(BranchMeta {
+                name,
+                tip_commit,
+                is_merged,
+                has_upstream,
+                is_current,
+            });
+        }
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(out)
+    }
+
+    /// 采集依赖清单/锁定文件元数据：生态识别 + git 跟踪状态 + 工作区存在性。
+    ///
+    /// 覆盖工作区内全部已知清单/锁定文件，外加「已跟踪但工作区缺失」的
+    /// 锁定文件（如被误删的 Cargo.lock），供依赖健康检查器结构判定。
+    pub fn dependency_files(&self) -> Result<Vec<DepFileMeta>> {
+        let tracked: std::collections::HashSet<String> = self
+            .repo
+            .index()
+            .map(|idx| {
+                idx.iter()
+                    .filter_map(|e| std::str::from_utf8(&e.path).ok().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let workdir: std::collections::HashSet<String> = self
+            .walk_workdir_files()?
+            .into_iter()
+            .map(|f| f.rel)
+            .collect();
+
+        let mut out: Vec<DepFileMeta> = Vec::new();
+        for path in tracked.iter().chain(workdir.iter()) {
+            let Some(file_name) = std::path::Path::new(path).file_name().and_then(|n| n.to_str())
+            else {
+                continue;
+            };
+            let Some((ecosystem, kind)) = classify_dep_file(file_name) else {
+                continue;
+            };
+            if out.iter().any(|d| d.path == *path) {
+                continue;
+            }
+            out.push(DepFileMeta {
+                path: path.clone(),
+                ecosystem,
+                kind,
+                tracked: tracked.contains(path),
+                in_workdir: workdir.contains(path),
+            });
+        }
+        out.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(out)
     }
 
     /// 采集全部本地分支可达的历史 blob 元数据（spec 5.1.1.3）。
@@ -288,6 +476,7 @@ fn process_batch(
             summary: commit.summary().unwrap_or_default().to_owned(),
             author: commit.author().name().unwrap_or_default().to_owned(),
             time: commit.time().seconds(),
+            time_offset: commit.time().offset_minutes(),
         };
         let Ok(tree) = commit.tree() else {
             continue;
@@ -398,6 +587,7 @@ fn collect_dep_manifests(files: &[String]) -> Vec<String> {
         .collect()
 }
 #[cfg(test)]
+#[allow(non_snake_case)]
 mod tests {
     use super::GitRepo;
     use crate::testutil::TestRepo;
@@ -460,5 +650,107 @@ mod tests {
         let git = GitRepo::open(t.path()).unwrap();
         let blobs = git.history_blob_metas(64, None, None).unwrap();
         assert!(blobs.iter().any(|b| b.path == "big_old.bin"));
+    }
+
+    /// 分支拓扑：当前分支标记 is_current；祖先分支已合并；有新提交的分支未合并；
+    /// 无远端配置时 has_upstream 均为 false。
+    #[test]
+    fn 分支拓扑_合并状态与当前分支标记() {
+        use crate::model::slice_meta::BranchMeta;
+        let mut t = TestRepo::init();
+        t.commit(&[("a.txt", b"hi")], "c1");
+        t.branch("feature"); // tip = c1，之后 main 前进 → 已合并
+        t.commit(&[("b.txt", b"hi")], "c2 on main");
+        t.branch("old");
+        t.checkout("old");
+        t.commit(&[("c.txt", b"hi")], "c3 on old"); // 未合并
+        t.checkout("main");
+        let git = GitRepo::open(t.path()).unwrap();
+        let branches = git.branch_graph().unwrap();
+        let by_name = |name: &str| -> BranchMeta {
+            branches.iter().find(|b| b.name == name).cloned().unwrap()
+        };
+        assert_eq!(branches.len(), 3);
+        assert!(by_name("main").is_current);
+        assert!(!by_name("feature").is_current);
+        assert!(by_name("feature").is_merged, "祖先分支应判定为已合并");
+        assert!(!by_name("old").is_merged, "含未合并提交的分支不应判定已合并");
+        for b in &branches {
+            assert!(!b.has_upstream, "夹具无远端配置，均无远端追踪");
+            assert_eq!(b.tip_commit.id.len(), 40);
+        }
+    }
+
+    /// 工作区内容采集：文本文件有内容；二进制（含 NUL）与超单文件上限为 None，
+    /// 但 size 元数据始终齐全。
+    #[test]
+    fn 工作区内容采集_文本有内容_二进制与超限为None() {
+        use crate::model::slice_meta::FileContent;
+        let mut t = TestRepo::init();
+        t.commit(&[("text.txt", b"hello")], "init");
+        let mut bin = vec![0u8; 32];
+        bin[0] = b'O';
+        bin[1] = 0;
+        t.commit(&[("blob.bin", &bin)], "add binary");
+        t.commit(&[("big.txt", &[b'x'; 64])], "add big");
+        let git = GitRepo::open(t.path()).unwrap();
+        let files = git.workdir_file_contents(32, 1_048_576).unwrap();
+        let by_path = |name: &str| -> FileContent {
+            files.iter().find(|f| f.path == name).cloned().unwrap()
+        };
+        assert_eq!(by_path("text.txt").content.as_deref(), Some("hello"));
+        assert_eq!(by_path("blob.bin").content, None, "二进制文件不读取内容");
+        assert_eq!(by_path("blob.bin").size, 32, "二进制文件 size 仍记录");
+        assert_eq!(by_path("big.txt").content, None, "超单文件上限不读取内容");
+        assert_eq!(by_path("big.txt").size, 64, "超限文件 size 仍记录");
+    }
+
+    /// 工作区内容采集：全仓总预算耗尽后后续文件 content 为 None（预算保护）。
+    #[test]
+    fn 工作区内容采集_总预算耗尽后不再读取() {
+        let mut t = TestRepo::init();
+        t.commit(&[("a.txt", &[b'a'; 16])], "c1");
+        t.commit(&[("b.txt", &[b'b'; 16])], "c2");
+        let git = GitRepo::open(t.path()).unwrap();
+        let files = git.workdir_file_contents(1024, 16).unwrap();
+        let read = files.iter().filter(|f| f.content.is_some()).count();
+        assert!(read <= 2, "预算内最多读满即止");
+        let total_read: usize = files
+            .iter()
+            .filter_map(|f| f.content.as_ref().map(|c| c.len()))
+            .sum();
+        assert!(total_read <= 16, "累计读取不得超过总预算");
+    }
+
+    /// 依赖文件采集：识别生态与角色；git 跟踪状态与工作区存在性分开标记；
+    /// 覆盖「已跟踪但工作区缺失」的锁定文件。
+    #[test]
+    fn 依赖文件采集_生态角色与跟踪状态() {
+        use crate::model::slice_meta::{DepFileKind, Ecosystem};
+        let mut t = TestRepo::init();
+        t.commit(
+            &[("Cargo.toml", b"[package]\nname=\"x\"\n"), ("Cargo.lock", b"# lock\n")],
+            "init",
+        );
+        std::fs::write(t.path().join("package.json"), b"{}").unwrap(); // 未跟踪
+        let git = GitRepo::open(t.path()).unwrap();
+        let deps = git.dependency_files().unwrap();
+        let by_path = |name: &str| deps.iter().find(|d| d.path == name).cloned().unwrap();
+        let lock = by_path("Cargo.lock");
+        assert_eq!(lock.ecosystem, Ecosystem::Rust);
+        assert_eq!(lock.kind, DepFileKind::Lock);
+        assert!(lock.tracked && lock.in_workdir);
+        let pkg = by_path("package.json");
+        assert_eq!(pkg.ecosystem, Ecosystem::JavaScript);
+        assert!(!pkg.tracked, "未加入 index 的文件 tracked 为 false");
+        assert!(pkg.in_workdir);
+
+        // 已跟踪但工作区缺失的锁定文件（未 staged 的物理删除）仍被采集。
+        std::fs::remove_file(t.path().join("Cargo.lock")).unwrap();
+        let git = GitRepo::open(t.path()).unwrap();
+        let deps = git.dependency_files().unwrap();
+        let lock = deps.iter().find(|d| d.path == "Cargo.lock").unwrap();
+        assert!(lock.tracked, "仍在 index 中，tracked 应为 true");
+        assert!(!lock.in_workdir, "工作区已删除，in_workdir 应为 false");
     }
 }

@@ -10,6 +10,28 @@
 //! - `**` 匹配任意层级路径段
 //!
 //! 规则按声明顺序求值，最后匹配的规则决定结果（与 gitignore 语义一致）。
+//!
+//! # 内置默认忽略
+//! [`IgnoreRule::load_from`] 会在用户规则之前注入构建产物/依赖目录默认项
+//! （`target/`、`node_modules/` 等）：用户规则声明在后因此优先，
+//! 可用 `!` 否定取消默认忽略（如 `!target/keep.bin`）。
+
+/// 内置默认忽略的目录模式（构建产物 / 依赖缓存，非仓库源资产）。
+const DEFAULT_IGNORE_PATTERNS: &[&str] = &[
+    "target/",
+    "node_modules/",
+    "dist/",
+    "build/",
+    "out/",
+    ".venv/",
+    "venv/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".gradle/",
+    ".next/",
+    ".nuxt/",
+    "coverage/",
+];
 
 /// 忽略规则集。
 #[derive(Debug, Clone, Default)]
@@ -28,43 +50,23 @@ struct Pattern {
 impl IgnoreRule {
     /// 从文件内容文本解析规则集。
     pub fn parse(text: &str) -> Self {
-        let mut patterns = Vec::new();
-        for line in text.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                continue;
-            }
-            let (negate, rest) = if let Some(stripped) = trimmed.strip_prefix('!') {
-                (true, stripped)
-            } else {
-                (false, trimmed)
-            };
-            let dir_only = rest.ends_with('/');
-            let body = rest.trim_end_matches('/');
-            let anchored = body.starts_with('/');
-            let body = body.trim_start_matches('/');
-            let segments: Vec<String> = if body.is_empty() {
-                Vec::new()
-            } else {
-                body.split('/').map(|s| s.to_owned()).collect()
-            };
-            patterns.push(Pattern {
-                negate,
-                anchored,
-                dir_only,
-                segments,
-            });
-        }
+        let patterns = text.lines().filter_map(parse_line).collect();
         Self { patterns }
     }
 
     /// 从仓库根目录读取 `.repobalance-ignore` 并解析；文件不存在时返回空规则。
     pub fn load_from(workdir: &std::path::Path) -> Self {
         let path = workdir.join(".repobalance-ignore");
-        match std::fs::read_to_string(&path) {
+        let mut rule = match std::fs::read_to_string(&path) {
             Ok(text) => Self::parse(&text),
             Err(_) => Self::default(),
-        }
+        };
+        let defaults: Vec<Pattern> = DEFAULT_IGNORE_PATTERNS
+            .iter()
+            .filter_map(|p| parse_line(p))
+            .collect();
+        rule.patterns.splice(0..0, defaults);
+        rule
     }
 
     /// 判断路径是否被忽略（正斜杠相对路径）。
@@ -114,6 +116,34 @@ impl Pattern {
         }
         false
     }
+}
+
+/// 解析单行规则；空行与注释返回 None。
+fn parse_line(line: &str) -> Option<Pattern> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    let (negate, rest) = if let Some(stripped) = trimmed.strip_prefix('!') {
+        (true, stripped)
+    } else {
+        (false, trimmed)
+    };
+    let dir_only = rest.ends_with('/');
+    let body = rest.trim_end_matches('/');
+    let anchored = body.starts_with('/');
+    let body = body.trim_start_matches('/');
+    let segments: Vec<String> = if body.is_empty() {
+        Vec::new()
+    } else {
+        body.split('/').map(|s| s.to_owned()).collect()
+    };
+    Some(Pattern {
+        negate,
+        anchored,
+        dir_only,
+        segments,
+    })
 }
 
 fn glob_match_segments(pat_segs: &[String], path_segs: &[&str]) -> bool {
@@ -266,6 +296,38 @@ mod tests {
         let dir = std::env::temp_dir();
         let rule = IgnoreRule::load_from(&dir);
         assert!(!rule.is_ignored("anything.txt"));
+    }
+
+    /// load_from 注入内置默认忽略：构建产物/依赖目录默认被忽略。
+    #[test]
+    fn load_from_注入内置默认忽略() {
+        let dir = std::env::temp_dir();
+        let rule = IgnoreRule::load_from(&dir);
+        assert!(rule.is_ignored("target/debug/rb"));
+        assert!(rule.is_ignored("ui/node_modules/a.js"));
+        assert!(rule.is_ignored("deep/nested/__pycache__/x.pyc"));
+        assert!(!rule.is_ignored("src/main.rs"), "普通源文件不受默认忽略影响");
+    }
+
+    /// 用户规则声明在后，可用 `!` 否定内置默认忽略。
+    #[test]
+    fn 内置默认忽略_用户否定规则优先() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(".repobalance-ignore"),
+            "!target/keep.bin\n",
+        )
+        .unwrap();
+        let rule = IgnoreRule::load_from(dir.path());
+        assert!(rule.is_ignored("target/debug/rb"), "默认忽略仍生效");
+        assert!(!rule.is_ignored("target/keep.bin"), "用户否定规则优先");
+    }
+
+    /// 显式 parse 不注入内置默认（仅 load_from 注入），保持纯函数语义。
+    #[test]
+    fn parse_显式解析_不含内置默认() {
+        let rule = IgnoreRule::parse("");
+        assert!(!rule.is_ignored("target/debug/rb"));
     }
 
     #[test]

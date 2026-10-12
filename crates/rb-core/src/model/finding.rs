@@ -10,7 +10,7 @@ pub enum Severity {
 }
 
 /// 检查维度。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
     Structure,
@@ -18,6 +18,17 @@ pub enum Category {
     Branches,
     Deps,
     Security,
+}
+
+impl Category {
+    /// 全部维度（封闭集，按评分/雷达图固定顺序）。
+    pub const ALL: [Category; 5] = [
+        Category::Structure,
+        Category::History,
+        Category::Branches,
+        Category::Deps,
+        Category::Security,
+    ];
 }
 
 /// 一条检查结论。

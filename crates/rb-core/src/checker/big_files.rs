@@ -47,9 +47,10 @@ impl Checker for BigFilesChecker {
             pattern: ALL_PATTERN.to_owned(),
         };
         let workdir: HashMap<String, u64> = match ctx.slice(&all_slice) {
-            Some(SliceData::FileContents(metas)) => {
-                metas.iter().map(|m| (m.path.clone(), m.size)).collect()
-            }
+            Some(SliceData::FileContents(files)) => files
+                .iter()
+                .map(|f| (f.path.clone(), f.size))
+                .collect(),
             _ => return Vec::new(),
         };
 
@@ -168,7 +169,7 @@ mod tests {
     use crate::engine::scan::scan;
     use crate::git::GitRepo;
     use crate::model::finding::Severity;
-    use crate::model::slice_meta::{BlobMeta, FileMeta};
+    use crate::model::slice_meta::{BlobMeta, FileContent};
     use crate::model::snapshot::{CommitSummary, RepoSnapshot};
     use crate::testutil::TestRepo;
 
@@ -185,10 +186,11 @@ mod tests {
         }
     }
 
-    fn file_meta(path: &str, size: u64) -> FileMeta {
-        FileMeta {
+    fn file_meta(path: &str, size: u64) -> FileContent {
+        FileContent {
             path: path.into(),
             size,
+            content: None,
         }
     }
 
@@ -201,6 +203,7 @@ mod tests {
                 summary: summary.into(),
                 author: "fixture".into(),
                 time,
+                time_offset: 0,
             },
         }
     }
@@ -208,7 +211,7 @@ mod tests {
     fn ctx_with<'a>(
         snapshot: &'a RepoSnapshot,
         config: &'a ScanConfig,
-        workdir: Vec<FileMeta>,
+        workdir: Vec<FileContent>,
         history: Vec<BlobMeta>,
     ) -> ScanContext<'a> {
         let mut ctx = ScanContext::base(snapshot, config);
@@ -280,10 +283,13 @@ mod tests {
         t.commit(&[("small.txt", b"hi")], "init");
         let git = GitRepo::open(t.path()).unwrap();
         let snap = git.snapshot().unwrap();
-        let workdir = git.workdir_file_metas().unwrap();
+        let workdir = git
+            .workdir_file_contents(1_048_576, 8 * 1_048_576)
+            .unwrap();
         let history = git.history_blob_metas(64, None, None).unwrap();
         let config = ScanConfig {
             big_file_threshold: 1,
+            zombie_branch_days: 90,
         };
         let mut ctx = ScanContext::base(&snap, &config);
         ctx.insert_slice(
@@ -307,6 +313,7 @@ mod tests {
         let snap = zero_snapshot();
         let config = ScanConfig {
             big_file_threshold: 100,
+            zombie_branch_days: 90,
         };
         let ctx = ctx_with(&snap, &config, vec![file_meta("a.txt", 100)], vec![]);
         let findings = BigFilesChecker.check(&ctx);
@@ -322,6 +329,7 @@ mod tests {
         let snap = zero_snapshot();
         let config = ScanConfig {
             big_file_threshold: 100,
+            zombie_branch_days: 90,
         };
         let ctx = ctx_with(
             &snap,
@@ -341,6 +349,7 @@ mod tests {
         let snap = zero_snapshot();
         let config = ScanConfig {
             big_file_threshold: 100,
+            zombie_branch_days: 90,
         };
         let ctx = ctx_with(
             &snap,
@@ -359,6 +368,7 @@ mod tests {
         let snap = zero_snapshot();
         let config = ScanConfig {
             big_file_threshold: 100,
+            zombie_branch_days: 90,
         };
         let ctx = ctx_with(
             &snap,
@@ -396,6 +406,7 @@ mod tests {
         let snap = zero_snapshot();
         let config = ScanConfig {
             big_file_threshold: 100,
+            zombie_branch_days: 90,
         };
         let ctx = ctx_with(&snap, &config, vec![file_meta("a.txt", 200)], vec![]);
         assert_eq!(BigFilesChecker.check(&ctx), BigFilesChecker.check(&ctx));

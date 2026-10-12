@@ -78,6 +78,18 @@ else
   info "已创建 old-branch（含未合并提交 wip）"
 fi
 
+# 步骤 3.5：.env —— 敏感信息演示（被提交的环境配置文件，Warning 形态）
+if git cat-file -e HEAD:.env 2>/dev/null; then
+  info "跳过：.env 已在 main 历史"
+elif [ -f .env ]; then
+  info "跳过：.env 已存在于工作区"
+else
+  printf 'API_TOKEN=demo-token-value\nDB_PASSWORD=demo-password-value\n' > .env
+  git add .env
+  git commit -q -m "chore: add env config"
+  info "已写入 .env 并提交（敏感信息演示形态）"
+fi
+
 # 步骤 4：最终形态报告
 info "===== 形态报告 ====="
 info "分支: $(git branch --format='%(refname:short)' | tr '\n' ' ')"
@@ -85,7 +97,7 @@ info "main 提交链:"
 git log --oneline main | sed 's/^/  /'
 info "old-branch 相对 main 的未合并提交:"
 git log --oneline main..old-branch | sed 's/^/  /' || true
-for f in leaked.txt big.bin; do
+for f in leaked.txt big.bin .env; do
   if git cat-file -e "main:$f" 2>/dev/null; then
     info "$f: 已提交入 main 历史 ✓"
   else

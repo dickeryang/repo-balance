@@ -2,7 +2,10 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use rb_core::checker::{BigFilesChecker, CheckerRegistry};
+use rb_core::checker::{
+    BigFilesChecker, CheckerRegistry, CommitHabitsChecker, DepsHealthChecker, SecretsChecker,
+    ZombieBranchesChecker,
+};
 use rb_core::engine::scan::scan;
 use rb_core::git::GitRepo;
 use rb_core::model::finding::Severity;
@@ -61,6 +64,10 @@ fn run_scan(path: &Path, ci: bool, json: bool, quiet: bool) -> Result<bool> {
     let snap = GitRepo::open(path)?.snapshot()?;
     let mut registry = CheckerRegistry::new();
     registry.register(Box::new(BigFilesChecker))?;
+    registry.register(Box::new(SecretsChecker))?;
+    registry.register(Box::new(ZombieBranchesChecker))?;
+    registry.register(Box::new(CommitHabitsChecker))?;
+    registry.register(Box::new(DepsHealthChecker))?;
     let report = scan(path, &registry)?;
 
     let critical_count = report
@@ -142,10 +149,14 @@ fn print_ci(
     warning: usize,
     info: usize,
 ) {
-    let total_score = report.scores.total();
+    let total_score = report
+        .scores
+        .total()
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "N/A".to_owned());
     println!("== 仓衡 RepoBalance CI 报告 ==");
     println!("仓库: {}", snap.path);
-    println!("总分: {total_score}/100");
+    println!("总分: {total_score}/100（已覆盖维度平均）");
     println!(
         "发现: {} 条 (Critical={critical}, Warning={warning}, Info={info})",
         report.findings.len()
@@ -175,7 +186,11 @@ fn print_json(
     warning: usize,
     info: usize,
 ) {
-    let total_score = report.scores.total();
+    let total_score = report
+        .scores
+        .total()
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "null".to_owned());
     let findings_json: Vec<String> = report
         .findings
         .iter()

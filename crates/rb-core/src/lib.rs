@@ -15,6 +15,7 @@ pub mod error;
 pub mod git;
 pub mod ignore;
 pub mod model;
+mod timefmt;
 
 pub use error::RbError;
 

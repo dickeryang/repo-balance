@@ -9,8 +9,14 @@ pub struct CommitSummary {
     pub summary: String,
     /// 作者名。
     pub author: String,
-    /// Unix 时间戳（秒）。
+    /// Unix 时间戳（秒，UTC）。
     pub time: i64,
+    /// 提交时记录的时区偏移（分钟，东为正；如 +0800 → 480）。
+    ///
+    /// 供检查器换算提交作者的本地时间（如「深夜提交」判定）；
+    /// 反序列化缺省为 0（按 UTC 处理），保证旧数据兼容。
+    #[serde(default)]
+    pub time_offset: i32,
 }
 
 /// 仓库只读快照：对外暴露的唯一 git 状态视图。

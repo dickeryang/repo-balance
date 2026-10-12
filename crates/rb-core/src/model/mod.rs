@@ -3,6 +3,7 @@ pub mod report;
 pub mod slice_meta;
 pub mod snapshot;
 #[cfg(test)]
+#[allow(non_snake_case)]
 mod tests {
     use super::finding::{Category, Finding, Severity};
     use super::report::{ScanReport, Scores};
@@ -19,6 +20,7 @@ mod tests {
                 summary: "init".into(),
                 author: "tester".into(),
                 time: 1_700_000_000,
+                time_offset: 0,
             }],
             file_count: 3,
             total_bytes: 1024,
@@ -76,11 +78,11 @@ mod tests {
             repo_path: "/tmp/demo".into(),
             findings: Vec::new(),
             scores: Scores {
-                structure: 90,
-                history: 80,
-                branches: 70,
-                deps: 60,
-                security: 50,
+                structure: Some(90),
+                history: Some(80),
+                branches: None,
+                deps: Some(60),
+                security: Some(50),
             },
             started_at: 1,
             duration_ms: 2,
@@ -89,6 +91,32 @@ mod tests {
         let json = serde_json::to_string(&r).unwrap();
         let back: ScanReport = serde_json::from_str(&json).unwrap();
         assert_eq!(serde_json::to_string(&back).unwrap(), json);
+    }
+
+    /// Scores.total() 只平均已覆盖维度；未覆盖维度不参与、不拖低总分。
+    #[test]
+    fn scores_total_只平均已覆盖维度() {
+        let s = Scores {
+            structure: Some(90),
+            history: Some(80),
+            branches: None,
+            deps: None,
+            security: None,
+        };
+        assert_eq!(s.total(), Some(85));
+    }
+
+    /// 全部维度未覆盖时 total() 为 None（空注册表等场景）。
+    #[test]
+    fn scores_total_全部未覆盖_返回None() {
+        let s = Scores {
+            structure: None,
+            history: None,
+            branches: None,
+            deps: None,
+            security: None,
+        };
+        assert_eq!(s.total(), None);
     }
 
     /// 枚举非法取值在反序列化边界报错。

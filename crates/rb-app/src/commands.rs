@@ -45,16 +45,18 @@ pub async fn repo_info(path: String) -> Result<RepoSnapshotDto, String> {
 /// 将引擎阶段事件映射为前端进度事件 payload。
 ///
 /// `stage` 传递原始阶段标识（snapshot/workdir/history/check/done），
-/// 由前端按当前 locale 翻译；字段与前端 `ProgressEvent` 类型
+/// 由前端按当前 locale 翻译；`check` 阶段携带 `checkerId`（进入时）与
+/// `findingCount`（完成时）；字段与前端 `ProgressEvent` 类型
 /// 一一对应（camelCase：stage/checkerId/done/total/percent）。
 fn progress_payload(p: rb_core::engine::scan::ScanProgress) -> serde_json::Value {
     let percent = estimate_percent(p.stage, p.done, p.total);
     serde_json::json!({
         "stage": p.stage,
-        "checkerId": "",
+        "checkerId": p.checker_id,
         "done": p.done,
         "total": p.total,
         "percent": percent,
+        "findingCount": p.finding_count,
     })
 }
 
@@ -120,11 +122,25 @@ pub async fn start_scan(
             // 按启用列表注册检查器（空列表表示全部启用）。
             let mut registry = rb_core::checker::CheckerRegistry::new();
             let enable_all = cfg.enabled_checkers.is_empty();
-            if enable_all || cfg.enabled_checkers.iter().any(|id| id == "big-files") {
+            let enabled = |id: &str| enable_all || cfg.enabled_checkers.iter().any(|e| e == id);
+            if enabled("big-files") {
                 let _ = registry.register(Box::new(rb_core::checker::BigFilesChecker));
+            }
+            if enabled("secrets") {
+                let _ = registry.register(Box::new(rb_core::checker::SecretsChecker));
+            }
+            if enabled("zombie-branches") {
+                let _ = registry.register(Box::new(rb_core::checker::ZombieBranchesChecker));
+            }
+            if enabled("commit-habits") {
+                let _ = registry.register(Box::new(rb_core::checker::CommitHabitsChecker));
+            }
+            if enabled("deps-health") {
+                let _ = registry.register(Box::new(rb_core::checker::DepsHealthChecker));
             }
             let core_config = rb_core::checker::ScanConfig {
                 big_file_threshold: cfg.big_file_threshold,
+                zombie_branch_days: cfg.zombie_branch_days,
             };
             rb_core::engine::scan::scan_with_progress(
                 &path_buf,
