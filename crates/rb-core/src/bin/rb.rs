@@ -103,7 +103,10 @@ fn run_scan(path: &Path, ci: bool, json: bool, quiet: bool) -> Result<bool> {
     Ok(critical_count > 0)
 }
 
-fn print_human(snap: &rb_core::model::snapshot::RepoSnapshot, report: &rb_core::model::report::ScanReport) {
+fn print_human(
+    snap: &rb_core::model::snapshot::RepoSnapshot,
+    report: &rb_core::model::report::ScanReport,
+) {
     println!("仓衡 (rb) 仓库摘要: {}", snap.path);
     println!("  提交数: {}", snap.commit_count);
     println!(
@@ -123,10 +126,7 @@ fn print_human(snap: &rb_core::model::snapshot::RepoSnapshot, report: &rb_core::
     if report.findings.is_empty() {
         println!("  体检结论: 未发现需要关注的问题");
     } else {
-        println!(
-            "  体检结论: 共 {} 条 finding",
-            report.findings.len()
-        );
+        println!("  体检结论: 共 {} 条 finding", report.findings.len());
         for f in &report.findings {
             let tag = match f.severity {
                 Severity::Critical => "[Critical]",

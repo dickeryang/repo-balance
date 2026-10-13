@@ -55,7 +55,10 @@ impl Checker for ZombieBranchesChecker {
             .map(|b| b.tip_commit.time)
             .max()
             .unwrap_or_default();
-        let threshold_secs = ctx.config().zombie_branch_days.saturating_mul(DAY_SECS as u64) as i64;
+        let threshold_secs = ctx
+            .config()
+            .zombie_branch_days
+            .saturating_mul(DAY_SECS as u64) as i64;
 
         let mut findings = Vec::new();
         for b in branches {
@@ -151,9 +154,7 @@ fn short_hash(id: &str) -> &str {
 #[allow(non_snake_case)]
 mod tests {
     use super::ZombieBranchesChecker;
-    use crate::checker::{
-        Checker, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData,
-    };
+    use crate::checker::{Checker, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData};
     use crate::engine::scan::scan;
     use crate::model::finding::{Category, Severity};
     use crate::model::slice_meta::BranchMeta;
@@ -259,11 +260,17 @@ mod tests {
     fn 命中_无远端追踪_产出Info() {
         let snap = zero_snapshot();
         let config = ScanConfig::default();
-        let ctx = ctx_with(&snap, &config, vec![branch("wip", NOW - 3_600, false, false, false)]);
+        let ctx = ctx_with(
+            &snap,
+            &config,
+            vec![branch("wip", NOW - 3_600, false, false, false)],
+        );
         let findings = ZombieBranchesChecker.check(&ctx);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Info);
-        assert!(findings[0].id.starts_with("zombie-branches.no-upstream:wip"));
+        assert!(findings[0]
+            .id
+            .starts_with("zombie-branches.no-upstream:wip"));
         assert!(findings[0].suggestion.contains("git push -u origin wip"));
     }
 
@@ -311,7 +318,11 @@ mod tests {
     fn 不命中_当前分支跳过() {
         let snap = zero_snapshot();
         let config = ScanConfig::default();
-        let ctx = ctx_with(&snap, &config, vec![branch("main", NOW - 400 * 86_400, true, false, true)]);
+        let ctx = ctx_with(
+            &snap,
+            &config,
+            vec![branch("main", NOW - 400 * 86_400, true, false, true)],
+        );
         assert!(ZombieBranchesChecker.check(&ctx).is_empty());
     }
 
@@ -365,7 +376,11 @@ mod tests {
     fn 边界_已合并优先于超期() {
         let snap = zero_snapshot();
         let config = ScanConfig::default();
-        let ctx = ctx_with(&snap, &config, vec![branch("legacy", NOW - 400 * 86_400, true, false, false)]);
+        let ctx = ctx_with(
+            &snap,
+            &config,
+            vec![branch("legacy", NOW - 400 * 86_400, true, false, false)],
+        );
         let findings = ZombieBranchesChecker.check(&ctx);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].id.starts_with("zombie-branches.merged:"));
@@ -419,11 +434,13 @@ mod tests {
         let report = scan(t.path(), &registry).unwrap();
         let ids: Vec<&str> = report.findings.iter().map(|f| f.id.as_str()).collect();
         assert!(
-            ids.iter().any(|id| id.starts_with("zombie-branches.merged:feature")),
+            ids.iter()
+                .any(|id| id.starts_with("zombie-branches.merged:feature")),
             "已合并分支应有结论: {ids:?}"
         );
         assert!(
-            ids.iter().any(|id| id.starts_with("zombie-branches.no-upstream:wip")),
+            ids.iter()
+                .any(|id| id.starts_with("zombie-branches.no-upstream:wip")),
             "无远端追踪分支应有结论: {ids:?}"
         );
         assert!(

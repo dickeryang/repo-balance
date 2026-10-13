@@ -207,10 +207,7 @@ mod tests {
             .register(Box::new(MockChecker::new("dup", Category::History)))
             .unwrap();
         let err = registry
-            .register(Box::new(MockChecker::new(
-                "dup",
-                Category::Structure,
-            )))
+            .register(Box::new(MockChecker::new("dup", Category::Structure)))
             .unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("dup"), "错误文案缺少冲突 id: {msg}");
@@ -239,12 +236,11 @@ mod tests {
         let snap = snapshot();
         let config = ScanConfig::default();
         let ctx = ScanContext::base(&snap, &config);
-        let a = MockChecker::new("a", Category::Structure)
-            .with_slices(vec![DataSlice::FullHistory]);
+        let a =
+            MockChecker::new("a", Category::Structure).with_slices(vec![DataSlice::FullHistory]);
         let b = MockChecker::new("b", Category::History)
             .with_slices(vec![DataSlice::FullHistory, DataSlice::WorkingTree]);
-        let c = MockChecker::new("c", Category::Deps)
-            .with_slices(vec![DataSlice::DependencyFiles]);
+        let c = MockChecker::new("c", Category::Deps).with_slices(vec![DataSlice::DependencyFiles]);
 
         let checkers: [&dyn Checker; 3] = [&a, &b, &c];
         let plans: Vec<ScanPlan> = checkers.iter().map(|c| c.plan(&ctx)).collect();

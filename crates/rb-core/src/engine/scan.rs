@@ -3,9 +3,7 @@ use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
-use crate::checker::{
-    merge_plans, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData,
-};
+use crate::checker::{merge_plans, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData};
 use crate::git::GitRepo;
 use crate::ignore::IgnoreRule;
 use crate::model::finding::{Category, Finding, Severity};
@@ -112,10 +110,8 @@ pub fn scan_with_progress(
         match slice {
             DataSlice::FileContents { pattern } => {
                 report_progress("workdir", 0, 0);
-                let files = repo.workdir_file_contents(
-                    FILE_CONTENT_PER_FILE_CAP,
-                    FILE_CONTENT_TOTAL_BUDGET,
-                )?;
+                let files = repo
+                    .workdir_file_contents(FILE_CONTENT_PER_FILE_CAP, FILE_CONTENT_TOTAL_BUDGET)?;
                 let files: Vec<_> = files
                     .into_iter()
                     .filter(|f| !ignore.is_ignored(&f.path) && pattern_matches(pattern, &f.path))
@@ -138,9 +134,7 @@ pub fn scan_with_progress(
                 let blobs = repo.history_blob_metas(
                     DEFAULT_BATCH_SIZE,
                     cancel_flag,
-                    history_cb
-                        .as_ref()
-                        .map(|c| c as &dyn Fn(usize, usize)),
+                    history_cb.as_ref().map(|c| c as &dyn Fn(usize, usize)),
                 )?;
                 let blobs: Vec<_> = blobs
                     .into_iter()
@@ -299,9 +293,7 @@ fn now_secs() -> i64 {
 #[allow(non_snake_case)]
 mod tests {
     use super::scan;
-    use crate::checker::{
-        Checker, CheckerRegistry, DataSlice, ScanContext, ScanPlan, SliceData,
-    };
+    use crate::checker::{Checker, CheckerRegistry, DataSlice, ScanContext, ScanPlan, SliceData};
     use crate::model::finding::{Category, Finding, Severity};
     use crate::testutil::TestRepo;
 
@@ -324,12 +316,20 @@ mod tests {
         t.commit(&[("a.txt", b"hi")], "init");
         t.commit(&[("b.txt", b"hi")], "second");
         let mut registry = CheckerRegistry::new();
-        registry.register(Box::new(crate::checker::BigFilesChecker)).unwrap();
+        registry
+            .register(Box::new(crate::checker::BigFilesChecker))
+            .unwrap();
 
         let events = std::sync::Mutex::new(Vec::new());
         let config = crate::checker::ScanConfig::default();
-        super::scan_with_progress(t.path(), &registry, None, Some(&|p| events.lock().unwrap().push(p)), &config)
-            .unwrap();
+        super::scan_with_progress(
+            t.path(),
+            &registry,
+            None,
+            Some(&|p| events.lock().unwrap().push(p)),
+            &config,
+        )
+        .unwrap();
         let events = events.into_inner().unwrap();
 
         let stages: Vec<&str> = events.iter().map(|p| p.stage).collect();
@@ -369,7 +369,9 @@ mod tests {
         let mut t = TestRepo::init();
         t.commit(&[("a.txt", b"hi")], "init");
         let mut registry = CheckerRegistry::new();
-        registry.register(Box::new(crate::checker::BigFilesChecker)).unwrap();
+        registry
+            .register(Box::new(crate::checker::BigFilesChecker))
+            .unwrap();
         let report = super::scan_with_cancel(t.path(), &registry, None).unwrap();
         assert!(report.findings.len() <= 2);
     }
@@ -422,14 +424,17 @@ mod tests {
     #[test]
     fn 评分_clamp到0() {
         use std::collections::HashSet;
-        let findings = vec![Finding {
-            id: "big-files.worktree:a.bin".into(),
-            severity: Severity::Critical,
-            category: Category::Structure,
-            title: "大文件".into(),
-            evidence: "5MB".into(),
-            suggestion: "加入 gitignore".into(),
-        }; 7];
+        let findings = vec![
+            Finding {
+                id: "big-files.worktree:a.bin".into(),
+                severity: Severity::Critical,
+                category: Category::Structure,
+                title: "大文件".into(),
+                evidence: "5MB".into(),
+                suggestion: "加入 gitignore".into(),
+            };
+            7
+        ];
         let covered: HashSet<Category> = Category::ALL.into_iter().collect();
         let scores = super::compute_scores(&findings, &covered);
         assert_eq!(scores.structure, Some(0));
@@ -507,11 +512,7 @@ mod tests {
             "init",
         );
         std::fs::create_dir_all(t.path().join("node_modules/left-pad")).unwrap();
-        std::fs::write(
-            t.path().join("node_modules/left-pad/package.json"),
-            b"{}",
-        )
-        .unwrap();
+        std::fs::write(t.path().join("node_modules/left-pad/package.json"), b"{}").unwrap();
         let mut registry = CheckerRegistry::new();
         registry
             .register(Box::new(crate::checker::DepsHealthChecker))
@@ -529,13 +530,11 @@ mod tests {
     fn 忽略规则_被忽略的大文件不产出finding() {
         let mut t = TestRepo::init();
         t.commit(&[("big.bin", &vec![0u8; 2_000_000])], "add big");
-        std::fs::write(
-            t.path().join(".repobalance-ignore"),
-            "*.bin\n",
-        )
-        .unwrap();
+        std::fs::write(t.path().join(".repobalance-ignore"), "*.bin\n").unwrap();
         let mut registry = CheckerRegistry::new();
-        registry.register(Box::new(crate::checker::BigFilesChecker)).unwrap();
+        registry
+            .register(Box::new(crate::checker::BigFilesChecker))
+            .unwrap();
         let report = scan(t.path(), &registry).unwrap();
         assert!(
             report.findings.is_empty(),
@@ -548,13 +547,11 @@ mod tests {
     fn 忽略规则_否定规则取消忽略() {
         let mut t = TestRepo::init();
         t.commit(&[("keep.bin", &vec![0u8; 2_000_000])], "add keep");
-        std::fs::write(
-            t.path().join(".repobalance-ignore"),
-            "*.bin\n!keep.bin\n",
-        )
-        .unwrap();
+        std::fs::write(t.path().join(".repobalance-ignore"), "*.bin\n!keep.bin\n").unwrap();
         let mut registry = CheckerRegistry::new();
-        registry.register(Box::new(crate::checker::BigFilesChecker)).unwrap();
+        registry
+            .register(Box::new(crate::checker::BigFilesChecker))
+            .unwrap();
         let report = scan(t.path(), &registry).unwrap();
         assert_eq!(report.findings.len(), 1);
         assert!(report.findings[0].id.contains("keep.bin"));

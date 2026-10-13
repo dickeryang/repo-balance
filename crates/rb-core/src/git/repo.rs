@@ -252,7 +252,12 @@ impl GitRepo {
     ///
     /// HEAD 不存在（空仓库）时 `is_merged` 全部为 false（无合并基准）。
     pub fn branch_graph(&self) -> Result<Vec<BranchMeta>> {
-        let head_oid = self.repo.head().ok().and_then(|h| h.peel_to_commit().ok()).map(|c| c.id());
+        let head_oid = self
+            .repo
+            .head()
+            .ok()
+            .and_then(|h| h.peel_to_commit().ok())
+            .map(|c| c.id());
         let branch_iter = self
             .repo
             .branches(Some(git2::BranchType::Local))
@@ -325,7 +330,9 @@ impl GitRepo {
 
         let mut out: Vec<DepFileMeta> = Vec::new();
         for path in tracked.iter().chain(workdir.iter()) {
-            let Some(file_name) = std::path::Path::new(path).file_name().and_then(|n| n.to_str())
+            let Some(file_name) = std::path::Path::new(path)
+                .file_name()
+                .and_then(|n| n.to_str())
             else {
                 continue;
             };
@@ -459,10 +466,7 @@ impl GitRepo {
 /// 处理一批提交：解析每棵提交树并收集 blob 的（路径、oid、大小、所属提交摘要）。
 ///
 /// 单对象解析失败跳过继续（对象级容错）；仅读对象头 `size()`，零内容读取。
-fn process_batch(
-    workdir: &Path,
-    batch: &[git2::Oid],
-) -> Vec<(String, String, u64, CommitSummary)> {
+fn process_batch(workdir: &Path, batch: &[git2::Oid]) -> Vec<(String, String, u64, CommitSummary)> {
     let mut out = Vec::new();
     let Ok(repo) = git2::Repository::open(workdir) else {
         return out;
@@ -618,7 +622,10 @@ mod tests {
         let blobs = git.history_blob_metas(64, None, None).unwrap();
         let big_blobs: Vec<_> = blobs.iter().filter(|b| b.path == "big.bin").collect();
         assert_eq!(big_blobs.len(), 2);
-        let earliest = big_blobs.iter().min_by_key(|b| b.first_commit.time).unwrap();
+        let earliest = big_blobs
+            .iter()
+            .min_by_key(|b| b.first_commit.time)
+            .unwrap();
         assert_eq!(earliest.first_commit.summary, "first");
     }
 
@@ -674,7 +681,10 @@ mod tests {
         assert!(by_name("main").is_current);
         assert!(!by_name("feature").is_current);
         assert!(by_name("feature").is_merged, "祖先分支应判定为已合并");
-        assert!(!by_name("old").is_merged, "含未合并提交的分支不应判定已合并");
+        assert!(
+            !by_name("old").is_merged,
+            "含未合并提交的分支不应判定已合并"
+        );
         for b in &branches {
             assert!(!b.has_upstream, "夹具无远端配置，均无远端追踪");
             assert_eq!(b.tip_commit.id.len(), 40);
@@ -695,9 +705,8 @@ mod tests {
         t.commit(&[("big.txt", &[b'x'; 64])], "add big");
         let git = GitRepo::open(t.path()).unwrap();
         let files = git.workdir_file_contents(32, 1_048_576).unwrap();
-        let by_path = |name: &str| -> FileContent {
-            files.iter().find(|f| f.path == name).cloned().unwrap()
-        };
+        let by_path =
+            |name: &str| -> FileContent { files.iter().find(|f| f.path == name).cloned().unwrap() };
         assert_eq!(by_path("text.txt").content.as_deref(), Some("hello"));
         assert_eq!(by_path("blob.bin").content, None, "二进制文件不读取内容");
         assert_eq!(by_path("blob.bin").size, 32, "二进制文件 size 仍记录");
@@ -729,7 +738,10 @@ mod tests {
         use crate::model::slice_meta::{DepFileKind, Ecosystem};
         let mut t = TestRepo::init();
         t.commit(
-            &[("Cargo.toml", b"[package]\nname=\"x\"\n"), ("Cargo.lock", b"# lock\n")],
+            &[
+                ("Cargo.toml", b"[package]\nname=\"x\"\n"),
+                ("Cargo.lock", b"# lock\n"),
+            ],
             "init",
         );
         std::fs::write(t.path().join("package.json"), b"{}").unwrap(); // 未跟踪

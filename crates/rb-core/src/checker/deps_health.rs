@@ -109,7 +109,9 @@ fn lock_required(eco: Ecosystem, manifests: &[&DepFileMeta]) -> bool {
 fn missing_lock_finding(eco: Ecosystem, manifest: &DepFileMeta) -> Finding {
     let hint = match eco {
         Ecosystem::Rust => "执行 cargo generate-lockfile 生成并提交 Cargo.lock",
-        Ecosystem::JavaScript => "执行 npm install 生成 package-lock.json 并提交（或统一使用 pnpm/yarn 的锁定文件）",
+        Ecosystem::JavaScript => {
+            "执行 npm install 生成 package-lock.json 并提交（或统一使用 pnpm/yarn 的锁定文件）"
+        }
         Ecosystem::Python => "执行 poetry lock 或 uv lock 生成锁定文件并提交",
         Ecosystem::Go => "执行 go mod tidy 生成 go.sum 并提交",
         Ecosystem::Ruby => "执行 bundle install 生成 Gemfile.lock 并提交",
@@ -211,9 +213,7 @@ fn file_name(path: &str) -> &str {
 #[allow(non_snake_case)]
 mod tests {
     use super::DepsHealthChecker;
-    use crate::checker::{
-        Checker, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData,
-    };
+    use crate::checker::{Checker, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData};
     use crate::engine::scan::scan;
     use crate::model::finding::{Category, Finding, Severity};
     use crate::model::slice_meta::{DepFileKind, DepFileMeta, Ecosystem};
@@ -233,7 +233,13 @@ mod tests {
         }
     }
 
-    fn dep(path: &str, eco: Ecosystem, kind: DepFileKind, tracked: bool, in_workdir: bool) -> DepFileMeta {
+    fn dep(
+        path: &str,
+        eco: Ecosystem,
+        kind: DepFileKind,
+        tracked: bool,
+        in_workdir: bool,
+    ) -> DepFileMeta {
         DepFileMeta {
             path: path.into(),
             ecosystem: eco,
@@ -267,12 +273,20 @@ mod tests {
         let ctx = ctx_with(
             &snap,
             &config,
-            vec![dep("Cargo.toml", Ecosystem::Rust, DepFileKind::Manifest, true, true)],
+            vec![dep(
+                "Cargo.toml",
+                Ecosystem::Rust,
+                DepFileKind::Manifest,
+                true,
+                true,
+            )],
         );
         let findings = DepsHealthChecker.check(&ctx);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Warning);
-        assert!(findings[0].id.starts_with("deps-health.missing-lock:Cargo.toml"));
+        assert!(findings[0]
+            .id
+            .starts_with("deps-health.missing-lock:Cargo.toml"));
         assert!(findings[0].suggestion.contains("cargo generate-lockfile"));
     }
 
@@ -285,8 +299,20 @@ mod tests {
             &snap,
             &config,
             vec![
-                dep("package.json", Ecosystem::JavaScript, DepFileKind::Manifest, true, true),
-                dep("package-lock.json", Ecosystem::JavaScript, DepFileKind::Lock, false, true),
+                dep(
+                    "package.json",
+                    Ecosystem::JavaScript,
+                    DepFileKind::Manifest,
+                    true,
+                    true,
+                ),
+                dep(
+                    "package-lock.json",
+                    Ecosystem::JavaScript,
+                    DepFileKind::Lock,
+                    false,
+                    true,
+                ),
             ],
         );
         let findings = DepsHealthChecker.check(&ctx);
@@ -304,8 +330,20 @@ mod tests {
             &snap,
             &config,
             vec![
-                dep("Cargo.toml", Ecosystem::Rust, DepFileKind::Manifest, true, true),
-                dep("Cargo.lock", Ecosystem::Rust, DepFileKind::Lock, true, false),
+                dep(
+                    "Cargo.toml",
+                    Ecosystem::Rust,
+                    DepFileKind::Manifest,
+                    true,
+                    true,
+                ),
+                dep(
+                    "Cargo.lock",
+                    Ecosystem::Rust,
+                    DepFileKind::Lock,
+                    true,
+                    false,
+                ),
             ],
         );
         let findings = DepsHealthChecker.check(&ctx);
@@ -323,15 +361,35 @@ mod tests {
             &snap,
             &config,
             vec![
-                dep("package.json", Ecosystem::JavaScript, DepFileKind::Manifest, true, true),
-                dep("package-lock.json", Ecosystem::JavaScript, DepFileKind::Lock, true, true),
-                dep("yarn.lock", Ecosystem::JavaScript, DepFileKind::Lock, true, true),
+                dep(
+                    "package.json",
+                    Ecosystem::JavaScript,
+                    DepFileKind::Manifest,
+                    true,
+                    true,
+                ),
+                dep(
+                    "package-lock.json",
+                    Ecosystem::JavaScript,
+                    DepFileKind::Lock,
+                    true,
+                    true,
+                ),
+                dep(
+                    "yarn.lock",
+                    Ecosystem::JavaScript,
+                    DepFileKind::Lock,
+                    true,
+                    true,
+                ),
             ],
         );
         let findings = DepsHealthChecker.check(&ctx);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Info);
-        assert!(findings[0].id.starts_with("deps-health.mixed-lockfiles:javascript"));
+        assert!(findings[0]
+            .id
+            .starts_with("deps-health.mixed-lockfiles:javascript"));
         assert!(findings[0].evidence.contains("yarn.lock"));
     }
 
@@ -344,14 +402,34 @@ mod tests {
             &snap,
             &config,
             vec![
-                dep("pyproject.toml", Ecosystem::Python, DepFileKind::Manifest, true, true),
-                dep("requirements.txt", Ecosystem::Python, DepFileKind::Manifest, true, true),
-                dep("poetry.lock", Ecosystem::Python, DepFileKind::Lock, true, true),
+                dep(
+                    "pyproject.toml",
+                    Ecosystem::Python,
+                    DepFileKind::Manifest,
+                    true,
+                    true,
+                ),
+                dep(
+                    "requirements.txt",
+                    Ecosystem::Python,
+                    DepFileKind::Manifest,
+                    true,
+                    true,
+                ),
+                dep(
+                    "poetry.lock",
+                    Ecosystem::Python,
+                    DepFileKind::Lock,
+                    true,
+                    true,
+                ),
             ],
         );
         let findings = DepsHealthChecker.check(&ctx);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].id.starts_with("deps-health.mixed-manifests:python"));
+        assert!(findings[0]
+            .id
+            .starts_with("deps-health.mixed-manifests:python"));
     }
 
     /// pyproject.toml 无锁定文件 → Warning（Python 强清单口径）。
@@ -362,11 +440,19 @@ mod tests {
         let ctx = ctx_with(
             &snap,
             &config,
-            vec![dep("pyproject.toml", Ecosystem::Python, DepFileKind::Manifest, true, true)],
+            vec![dep(
+                "pyproject.toml",
+                Ecosystem::Python,
+                DepFileKind::Manifest,
+                true,
+                true,
+            )],
         );
         let findings = DepsHealthChecker.check(&ctx);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].id.starts_with("deps-health.missing-lock:pyproject.toml"));
+        assert!(findings[0]
+            .id
+            .starts_with("deps-health.missing-lock:pyproject.toml"));
     }
 
     // ===== 不命中 =====
@@ -380,10 +466,28 @@ mod tests {
             &snap,
             &config,
             vec![
-                dep("Cargo.toml", Ecosystem::Rust, DepFileKind::Manifest, true, true),
+                dep(
+                    "Cargo.toml",
+                    Ecosystem::Rust,
+                    DepFileKind::Manifest,
+                    true,
+                    true,
+                ),
                 dep("Cargo.lock", Ecosystem::Rust, DepFileKind::Lock, true, true),
-                dep("package.json", Ecosystem::JavaScript, DepFileKind::Manifest, true, true),
-                dep("package-lock.json", Ecosystem::JavaScript, DepFileKind::Lock, true, true),
+                dep(
+                    "package.json",
+                    Ecosystem::JavaScript,
+                    DepFileKind::Manifest,
+                    true,
+                    true,
+                ),
+                dep(
+                    "package-lock.json",
+                    Ecosystem::JavaScript,
+                    DepFileKind::Lock,
+                    true,
+                    true,
+                ),
             ],
         );
         assert!(DepsHealthChecker.check(&ctx).is_empty());
@@ -397,7 +501,13 @@ mod tests {
         let ctx = ctx_with(
             &snap,
             &config,
-            vec![dep("requirements.txt", Ecosystem::Python, DepFileKind::Manifest, true, true)],
+            vec![dep(
+                "requirements.txt",
+                Ecosystem::Python,
+                DepFileKind::Manifest,
+                true,
+                true,
+            )],
         );
         assert!(DepsHealthChecker.check(&ctx).is_empty());
     }
@@ -410,7 +520,13 @@ mod tests {
         let ctx = ctx_with(
             &snap,
             &config,
-            vec![dep("pom.xml", Ecosystem::Java, DepFileKind::Manifest, true, true)],
+            vec![dep(
+                "pom.xml",
+                Ecosystem::Java,
+                DepFileKind::Manifest,
+                true,
+                true,
+            )],
         );
         assert!(DepsHealthChecker.check(&ctx).is_empty());
     }
@@ -435,8 +551,20 @@ mod tests {
             &snap,
             &config,
             vec![
-                dep("pyproject.toml", Ecosystem::Python, DepFileKind::Manifest, true, true),
-                dep("poetry.lock", Ecosystem::Python, DepFileKind::Lock, true, true),
+                dep(
+                    "pyproject.toml",
+                    Ecosystem::Python,
+                    DepFileKind::Manifest,
+                    true,
+                    true,
+                ),
+                dep(
+                    "poetry.lock",
+                    Ecosystem::Python,
+                    DepFileKind::Lock,
+                    true,
+                    true,
+                ),
             ],
         );
         assert!(DepsHealthChecker.check(&ctx).is_empty());
@@ -483,7 +611,13 @@ mod tests {
         let ctx = ctx_with(
             &snap,
             &config,
-            vec![dep("Cargo.toml", Ecosystem::Rust, DepFileKind::Manifest, true, true)],
+            vec![dep(
+                "Cargo.toml",
+                Ecosystem::Rust,
+                DepFileKind::Manifest,
+                true,
+                true,
+            )],
         );
         assert_eq!(DepsHealthChecker.check(&ctx), DepsHealthChecker.check(&ctx));
     }

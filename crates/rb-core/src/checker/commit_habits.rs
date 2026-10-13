@@ -117,7 +117,10 @@ fn ratio_findings(recent: &[CommitSummary]) -> Vec<Finding> {
     }
 
     let mut out = Vec::new();
-    let low: Vec<&CommitSummary> = recent.iter().filter(|c| is_low_quality(&c.summary)).collect();
+    let low: Vec<&CommitSummary> = recent
+        .iter()
+        .filter(|c| is_low_quality(&c.summary))
+        .collect();
     let low_ratio = low.len() as f64 / total as f64;
     if low_ratio > RATIO_THRESHOLD {
         let pct = (low_ratio * 100.0).round() as u32;
@@ -219,10 +222,10 @@ fn short_hash(id: &str) -> &str {
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
-    use super::{is_low_quality, is_night, CommitHabitsChecker, OVERSIZED_CRITICAL, OVERSIZED_WARNING};
-    use crate::checker::{
-        Checker, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData,
+    use super::{
+        is_low_quality, is_night, CommitHabitsChecker, OVERSIZED_CRITICAL, OVERSIZED_WARNING,
     };
+    use crate::checker::{Checker, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData};
     use crate::engine::scan::scan;
     use crate::model::finding::{Category, Severity};
     use crate::model::slice_meta::BlobMeta;
@@ -259,7 +262,14 @@ mod tests {
             .iter()
             .take(n)
             .enumerate()
-            .map(|(i, s)| commit(&format!("{:040}", i + 1), s, 1_704_110_400 + i as i64 * 3_600, 0))
+            .map(|(i, s)| {
+                commit(
+                    &format!("{:040}", i + 1),
+                    s,
+                    1_704_110_400 + i as i64 * 3_600,
+                    0,
+                )
+            })
             .collect()
     }
 
@@ -317,7 +327,14 @@ mod tests {
     /// 低质信息占比 >30% → Warning，证据含占比与示例。
     #[test]
     fn 命中_低质信息占比过高() {
-        let summaries = ["wip", "fix typo", "x", "feat: 新增导出", "fix: 边界", "docs: 更新"];
+        let summaries = [
+            "wip",
+            "fix typo",
+            "x",
+            "feat: 新增导出",
+            "fix: 边界",
+            "docs: 更新",
+        ];
         let snap = RepoSnapshot {
             recent_commits: commits(summaries.len(), &summaries),
             ..zero_snapshot()
@@ -326,7 +343,9 @@ mod tests {
         let ctx = ctx_with(&snap, &config, vec![]);
         let findings = CommitHabitsChecker.check(&ctx);
         assert_eq!(findings.len(), 1);
-        assert!(findings[0].id.starts_with("commit-habits.low-quality-ratio"));
+        assert!(findings[0]
+            .id
+            .starts_with("commit-habits.low-quality-ratio"));
         assert_eq!(findings[0].severity, Severity::Warning);
         assert!(findings[0].evidence.contains("50%"));
         assert_eq!(findings[0].category, Category::History);
@@ -445,7 +464,17 @@ mod tests {
     #[test]
     fn 边界_历史切片缺失_防御性跳过超大提交() {
         let snap = RepoSnapshot {
-            recent_commits: commits(6, &["feat: a", "fix: b", "docs: c", "test: d", "refactor: e", "chore: f"]),
+            recent_commits: commits(
+                6,
+                &[
+                    "feat: a",
+                    "fix: b",
+                    "docs: c",
+                    "test: d",
+                    "refactor: e",
+                    "chore: f",
+                ],
+            ),
             ..zero_snapshot()
         };
         let config = ScanConfig::default();
@@ -495,7 +524,9 @@ mod tests {
         registry.register(Box::new(CommitHabitsChecker)).unwrap();
         let report = scan(t.path(), &registry).unwrap();
         assert_eq!(report.findings.len(), 1);
-        assert!(report.findings[0].id.starts_with("commit-habits.oversized:"));
+        assert!(report.findings[0]
+            .id
+            .starts_with("commit-habits.oversized:"));
         assert_eq!(report.scores.history, Some(100 - 8));
     }
 }

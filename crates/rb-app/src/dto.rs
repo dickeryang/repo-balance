@@ -289,7 +289,11 @@ mod tests {
             .unwrap();
         assert_eq!(structure_point.score, Some(80));
         assert_eq!(structure_point.finding_count, 1);
-        let history_point = dto.radar_points.iter().find(|p| p.key == "history").unwrap();
+        let history_point = dto
+            .radar_points
+            .iter()
+            .find(|p| p.key == "history")
+            .unwrap();
         assert_eq!(history_point.finding_count, 0);
     }
 
@@ -311,7 +315,11 @@ mod tests {
             engine_version: "0.1.0".into(),
         };
         let dto = ScanReportDto::from(report);
-        let history_point = dto.radar_points.iter().find(|p| p.key == "history").unwrap();
+        let history_point = dto
+            .radar_points
+            .iter()
+            .find(|p| p.key == "history")
+            .unwrap();
         assert_eq!(history_point.score, None);
         assert_eq!(dto.scores.history, None);
         assert_eq!(dto.scores.structure, Some(80));
@@ -325,7 +333,10 @@ mod tests {
         assert_eq!(cfg.zombie_branch_days, 90);
         assert_eq!(cfg.enabled_checkers.len(), ALL_CHECKER_IDS.len());
         for id in ALL_CHECKER_IDS {
-            assert!(cfg.enabled_checkers.contains(&id.to_owned()), "缺少检查器 {id}");
+            assert!(
+                cfg.enabled_checkers.contains(&id.to_owned()),
+                "缺少检查器 {id}"
+            );
         }
     }
 

@@ -22,8 +22,7 @@ pub async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, S
         let _ = tx.send(path);
     });
     let result = rx.await.map_err(|e| e.to_string())?;
-    Ok(result
-        .and_then(|p| p.as_path().map(|p| p.to_string_lossy().to_string())))
+    Ok(result.and_then(|p| p.as_path().map(|p| p.to_string_lossy().to_string())))
 }
 
 /// 获取仓库快照信息（提交数/分支数/文件数等）。
@@ -255,7 +254,11 @@ fn report_to_markdown(report: &ScanReportDto) -> String {
         md.push_str("未发现问题，仓库健康 ✓\n");
     } else {
         for f in &report.findings {
-            md.push_str(&format!("### [{}] {}\n\n", severity_cn(&f.severity), f.title));
+            md.push_str(&format!(
+                "### [{}] {}\n\n",
+                severity_cn(&f.severity),
+                f.title
+            ));
             md.push_str(&format!("- **类别**: {}\n", category_cn(&f.category)));
             md.push_str(&format!("- **证据**: {}\n", f.evidence));
             md.push_str(&format!("- **建议**: {}\n\n", f.suggestion));
@@ -530,7 +533,11 @@ footer {{ color:#8b95ab; font-size:12px; text-align:center; margin-top:32px; }}
         html_escape(&report.engine_version),
         format_time_utc(report.started_at),
         report.duration_ms,
-        if report.cancelled { " · 扫描已取消（显示已完成部分）" } else { "" },
+        if report.cancelled {
+            " · 扫描已取消（显示已完成部分）"
+        } else {
+            ""
+        },
         total_class,
         total_score,
         radar_svg(&report.radar_points),

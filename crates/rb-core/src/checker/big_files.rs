@@ -47,10 +47,9 @@ impl Checker for BigFilesChecker {
             pattern: ALL_PATTERN.to_owned(),
         };
         let workdir: HashMap<String, u64> = match ctx.slice(&all_slice) {
-            Some(SliceData::FileContents(files)) => files
-                .iter()
-                .map(|f| (f.path.clone(), f.size))
-                .collect(),
+            Some(SliceData::FileContents(files)) => {
+                files.iter().map(|f| (f.path.clone(), f.size)).collect()
+            }
             _ => return Vec::new(),
         };
 
@@ -157,15 +156,14 @@ fn human_size(bytes: u64) -> String {
 
 /// 提交 hash 前 8 个字符（不足则取全部；按字符切片避免 UTF-8 panic）。
 fn short_hash(id: &str) -> &str {
-    id.get(..id.char_indices().nth(8).map(|(i, _)| i).unwrap_or(id.len())).unwrap_or(id)
+    id.get(..id.char_indices().nth(8).map(|(i, _)| i).unwrap_or(id.len()))
+        .unwrap_or(id)
 }
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
     use super::BigFilesChecker;
-    use crate::checker::{
-        Checker, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData,
-    };
+    use crate::checker::{Checker, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData};
     use crate::engine::scan::scan;
     use crate::git::GitRepo;
     use crate::model::finding::Severity;
@@ -283,9 +281,7 @@ mod tests {
         t.commit(&[("small.txt", b"hi")], "init");
         let git = GitRepo::open(t.path()).unwrap();
         let snap = git.snapshot().unwrap();
-        let workdir = git
-            .workdir_file_contents(1_048_576, 8 * 1_048_576)
-            .unwrap();
+        let workdir = git.workdir_file_contents(1_048_576, 8 * 1_048_576).unwrap();
         let history = git.history_blob_metas(64, None, None).unwrap();
         let config = ScanConfig {
             big_file_threshold: 1,
@@ -318,7 +314,9 @@ mod tests {
         let ctx = ctx_with(&snap, &config, vec![file_meta("a.txt", 100)], vec![]);
         let findings = BigFilesChecker.check(&ctx);
         assert!(
-            findings.iter().any(|f| f.id.contains("a.txt") && f.severity == Severity::Warning),
+            findings
+                .iter()
+                .any(|f| f.id.contains("a.txt") && f.severity == Severity::Warning),
             "工作区文件恰好等于阈值应命中 Warning"
         );
     }
@@ -374,7 +372,13 @@ mod tests {
             &snap,
             &config,
             vec![file_meta("a.txt", 200)],
-            vec![blob_meta("a.txt", 200, "abcdef1234567890", "init commit", 1_700_000_000)],
+            vec![blob_meta(
+                "a.txt",
+                200,
+                "abcdef1234567890",
+                "init commit",
+                1_700_000_000,
+            )],
         );
         let f = &BigFilesChecker.check(&ctx)[0];
         assert!(f.evidence.contains("a.txt"));

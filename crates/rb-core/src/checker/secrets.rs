@@ -316,11 +316,7 @@ fn scan_file(path: &str, content: &str) -> Vec<Finding> {
     }
 
     if !env_keys.is_empty() {
-        let preview: Vec<String> = env_keys
-            .iter()
-            .take(ENV_KEY_PREVIEW)
-            .cloned()
-            .collect();
+        let preview: Vec<String> = env_keys.iter().take(ENV_KEY_PREVIEW).cloned().collect();
         let more = if env_keys.len() > ENV_KEY_PREVIEW {
             format!(" 等 {} 个", env_keys.len())
         } else {
@@ -427,9 +423,7 @@ fn mask_header(s: &str) -> String {
 #[allow(non_snake_case)]
 mod tests {
     use super::{mask_secret, scan_file, shannon_entropy, SecretsChecker, ALL_PATTERN};
-    use crate::checker::{
-        Checker, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData,
-    };
+    use crate::checker::{Checker, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData};
     use crate::engine::scan::scan;
     use crate::model::finding::{Finding, Severity};
     use crate::model::snapshot::RepoSnapshot;
@@ -585,10 +579,7 @@ mod tests {
             &config,
             vec![
                 ("blob.bin", None),
-                (
-                    "leak.txt",
-                    Some(&format!("key = {}\n", aws_key())),
-                ),
+                ("leak.txt", Some(&format!("key = {}\n", aws_key()))),
             ],
         );
         let findings = SecretsChecker.check(&ctx);

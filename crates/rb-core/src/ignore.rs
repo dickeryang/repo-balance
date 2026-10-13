@@ -306,18 +306,17 @@ mod tests {
         assert!(rule.is_ignored("target/debug/rb"));
         assert!(rule.is_ignored("ui/node_modules/a.js"));
         assert!(rule.is_ignored("deep/nested/__pycache__/x.pyc"));
-        assert!(!rule.is_ignored("src/main.rs"), "普通源文件不受默认忽略影响");
+        assert!(
+            !rule.is_ignored("src/main.rs"),
+            "普通源文件不受默认忽略影响"
+        );
     }
 
     /// 用户规则声明在后，可用 `!` 否定内置默认忽略。
     #[test]
     fn 内置默认忽略_用户否定规则优先() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join(".repobalance-ignore"),
-            "!target/keep.bin\n",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join(".repobalance-ignore"), "!target/keep.bin\n").unwrap();
         let rule = IgnoreRule::load_from(dir.path());
         assert!(rule.is_ignored("target/debug/rb"), "默认忽略仍生效");
         assert!(!rule.is_ignored("target/keep.bin"), "用户否定规则优先");
