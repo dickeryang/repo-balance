@@ -19,7 +19,8 @@
 - **进度事件增强**：`ScanProgress` 增加 `checkerId` 与 `findingCount`，扫描页检查器列表由进度事件实时驱动（待运行 → 运行中 → 完成 + 结论数）
 - **配置面板**：五个检查器独立开关 + 僵尸分支未活跃天数；新增 `zombieBranchDays` 配置项
 - **忽略规则内置默认项**：`target/`、`node_modules/` 等构建产物目录默认忽略（可用 `!` 否定），依赖切片同步过滤忽略目录
-- **英文版文档**：`README_EN.md`（双语互链）、`SECURITY.md`、`CHANGELOG.md`、`CODE_OF_CONDUCT.md`、`CONTRIBUTING.md`、issue/PR 模板、`.editorconfig` / `.gitattributes`
+- **英文版文档**：`README_EN.md`、`CONTRIBUTING_EN.md`、`SECURITY_EN.md`、`CODE_OF_CONDUCT_EN.md`，与中文版双向互链
+- **治理文件**：`SUPPORT.md`（含未签名安装 / 误报处理 / 评分口径等 FAQ）、`GOVERNANCE.md`（维护模型、角色演进、决策流程与项目底线）、`AUTHORS.md`、`CITATION.cff`（通过 CFF 1.2.0 官方 schema 字段校验）；`CONTRIBUTING.md`、`CHANGELOG.md`、issue/PR 模板、`.editorconfig` / `.gitattributes`
 - **演示能力**：`scripts/build-demo-fixture.sh` 支持在全新克隆上自动初始化演示仓库（幂等，产出四类合成问题数据）
 
 ### 修复

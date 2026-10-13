@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use RepoBalance in your research, teaching materials or internal tooling, please cite it as below."
+title: "RepoBalance (仓衡)"
+abstract: >-
+  A cross-platform desktop application that runs a structured health checkup on
+  local Git repositories: large files, zombie branches, commit habits, dependency
+  health and leaked secrets, producing an exportable report. Fully local — no
+  network requests, no telemetry, with secret evidence masked inside the Rust core.
+type: software
+authors:
+  - family-names: "dickeryang"
+    email: "dickeryang@foxmail.com"
+    website: "https://github.com/dickeryang"
+repository-code: "https://atomgit.com/dickeryang/repo-balance"
+url: "https://github.com/dickeryang/repo-balance"
+license: "Apache-2.0"
+version: "0.1.0"
+date-released: "2026-10-06"
+keywords:
+  - git
+  - repository-health
+  - static-analysis
+  - secrets-detection
+  - developer-tools
+  - tauri
+  - rust

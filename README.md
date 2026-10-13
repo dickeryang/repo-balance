@@ -155,6 +155,17 @@ cargo tauri build
 | macOS | `.dmg` + `.app` | `target/release/bundle/dmg/` |
 | Linux | `.deb` + `.AppImage` | `target/release/bundle/deb/` |
 
+### 安装与首次运行（未签名说明）
+
+发布包**未做代码签名**（开源项目的常见状态），首次运行会被系统拦截：
+
+| 平台 | 系统提示 | 处理方式 |
+|---|---|---|
+| macOS | 「Apple 无法检查其是否包含恶意软件」 | 右键应用 → 打开；或 `xattr -dr com.apple.quarantine "/Applications/仓衡.app"` |
+| Windows | SmartScreen 蓝色警告 | 点「更多信息」→「仍要运行」 |
+
+介意风险可从源码自行构建（见上方构建命令），全部构建步骤均可本地复现。
+
 ### 仅构建前端（不打包桌面应用）
 
 ```bash
@@ -276,13 +287,15 @@ repo-balance/
 
 ## 参与贡献
 
-欢迎提 issue 与 PR，完整流程、代码纪律与新增检查器的写法见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+欢迎提 issue 与 PR，完整流程、代码纪律与新增检查器的写法见 [`CONTRIBUTING.md`](CONTRIBUTING.md)（[English](CONTRIBUTING_EN.md)）。
 
+- 遇到问题先看 [`SUPPORT.md`](SUPPORT.md)（含未签名安装、误报处理、评分口径等常见问题）
 - 缺陷与功能建议：使用 [issue 模板](.github/ISSUE_TEMPLATE)
 - 提交 PR：请对照 [PR 模板](.github/PULL_REQUEST_TEMPLATE.md) 的验证清单
-- 社区行为准则：[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
-- 安全漏洞：请**勿**公开提交，按 [`SECURITY.md`](SECURITY.md) 的私密渠道报告
-- 版本变更记录：[`CHANGELOG.md`](CHANGELOG.md)
+- 社区行为准则：[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)（[English](CODE_OF_CONDUCT_EN.md)）
+- 安全漏洞：请**勿**公开提交，按 [`SECURITY.md`](SECURITY.md)（[English](SECURITY_EN.md)）的私密渠道报告
+- 项目治理与角色：[`GOVERNANCE.md`](GOVERNANCE.md) ｜ 贡献者名单：[`AUTHORS.md`](AUTHORS.md)
+- 版本变更记录：[`CHANGELOG.md`](CHANGELOG.md)（Keep a Changelog + 语义化版本）
 
 ## 许可证
 

@@ -31,9 +31,10 @@
 | 覆盖率 | ✅ | rb-core 覆盖率摘要纳入 CI（cargo-llvm-cov） |
 | MSRV | ✅ | 声明 `rust-version = 1.88`（依赖树实测下界），CI 与实际一致 |
 | 安全设计 | ✅ | CSP 最小集、权限最小集、纯本地零网络、evidence 掩码 |
-| 贡献者基础设施 | ✅ | CONTRIBUTING / CODE_OF_CONDUCT / SECURITY / CHANGELOG / issue 模板（bug+feature）/ PR 模板 / .editorconfig / .gitattributes |
+| 贡献者基础设施 | ✅ | CONTRIBUTING / CODE_OF_CONDUCT / SECURITY / CHANGELOG / SUPPORT / GOVERNANCE / AUTHORS / CITATION.cff / issue 模板（bug+feature）/ PR 模板 / .editorconfig / .gitattributes |
+| 双语文档 | ✅ | README / CONTRIBUTING / SECURITY / CODE_OF_CONDUCT 四份文档中英互链（CHANGELOG 保持单语，避免双份同步负担） |
+| 安装体验说明 | ✅ | README 载明发布包未签名及 macOS/Windows 放行方式（含命令），并指向源码自构建 |
 | 演示可复现 | ✅ | `scripts/build-demo-fixture.sh` 在全新克隆上自动初始化演示仓库（幂等，四类合成数据） |
-| 双语文档 | ✅ | `README.md` + `README_EN.md` 互链 |
 | AtomGit 露出 | ✅ | README 顶部 G-Star+Star+Fork+Download 徽章、托管与同步章节、AtomGit logo |
 | 双端同步 | ✅ | 同一提交推送 AtomGit + GitHub（G-Star 要求同步不超过 1 个月） |
 

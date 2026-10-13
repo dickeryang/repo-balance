@@ -157,6 +157,17 @@ Artifacts land in `target/release/bundle/`:
 | macOS | `.dmg` + `.app` | `target/release/bundle/dmg/` |
 | Linux | `.deb` + `.AppImage` | `target/release/bundle/deb/` |
 
+### Installing and first launch (unsigned builds)
+
+Release artifacts are **not code-signed** (the usual state for open-source projects), so the OS will block the first launch:
+
+| Platform | Prompt | Workaround |
+|---|---|---|
+| macOS | "Apple could not verify … is free of malware" | Right-click the app → Open; or `xattr -dr com.apple.quarantine "/Applications/仓衡.app"` |
+| Windows | SmartScreen warning | "More info" → "Run anyway" |
+
+If that is not acceptable to you, build from source — every build step above is reproducible locally.
+
 ### Frontend only (no desktop bundle)
 
 ```bash
@@ -288,12 +299,14 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 
 ## Contributing
 
-Issues and PRs are welcome. The full workflow, code discipline and the three-step recipe for adding a checker are in [`CONTRIBUTING.md`](CONTRIBUTING.md) (Chinese).
+Issues and PRs are welcome. The full workflow, code discipline and the three-step recipe for adding a checker are in [`CONTRIBUTING_EN.md`](CONTRIBUTING_EN.md) ([简体中文](CONTRIBUTING.md)).
 
+- Before filing anything, check [`SUPPORT.md`](SUPPORT.md) (Chinese — unsigned builds, false positives, how the score is computed)
 - Bugs and feature requests: use the [issue templates](.github/ISSUE_TEMPLATE)
 - Pull requests: check off the validation list in the [PR template](.github/PULL_REQUEST_TEMPLATE.md)
-- Community standards: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) (Chinese)
-- Security issues: **do not** open a public issue — follow the private channels in [`SECURITY.md`](SECURITY.md) (Chinese)
+- Community standards: [`CODE_OF_CONDUCT_EN.md`](CODE_OF_CONDUCT_EN.md) ([简体中文](CODE_OF_CONDUCT.md))
+- Security issues: **do not** open a public issue — use the private channels in [`SECURITY_EN.md`](SECURITY_EN.md) ([简体中文](SECURITY.md))
+- Governance and roles: [`GOVERNANCE.md`](GOVERNANCE.md) (Chinese) | Contributors: [`AUTHORS.md`](AUTHORS.md) (Chinese)
 - Release notes: [`CHANGELOG.md`](CHANGELOG.md) (Chinese)
 
 ## License
