@@ -28,12 +28,14 @@
 | CLI | ✅ | `rb scan <path> [--ci\|--json\|--quiet]` |
 | CI | ✅ | GitHub Actions：自体检 + Release 跨平台打包 |
 | 安全设计 | ✅ | CSP 最小集、权限最小集、纯本地零网络、evidence 掩码 |
+| 贡献者基础设施 | ✅ | CONTRIBUTING / issue 模板（bug+feature）/ PR 模板 |
+| AtomGit 露出 | ✅ | README 顶部 G-Star+Star+Fork+Download 徽章、托管与同步章节、AtomGit logo |
+| 双端同步 | ✅ | 同一提交推送 AtomGit + GitHub（G-Star 要求同步不超过 1 个月） |
 
 ### 关键缺口
 
 1. 历史数据存 localStorage：约 5MB 上限、清除缓存即丢失、无法导出。
-2. 缺少贡献者基础设施：CONTRIBUTING / CODE_OF_CONDUCT / issue 模板 / PR 模板。
-3. PDF 导出未实现。
+2. PDF 导出未实现。
 
 ---
 
@@ -55,11 +57,17 @@
   - 无检查器覆盖的维度显示 `N/A` 而非 100；
   - 总分改为「已覆盖维度平均」，避免新增检查器后分数反升的误导。
 - [x] **README 规划区修正**：未实现的功能（PDF 导出等）从「已完成」移至本文档对应位置。
-- [ ] **贡献者基础设施四件套**
-  - `CONTRIBUTING.md`、`CODE_OF_CONDUCT`、issue 模板（bug / feature）、PR 模板；
-  - README 增加「如何参与」章节。
-- [ ] **提交 G-Star 认证申请**（https://atomgit.com/G-Star/apply）
-  - AtomGit 仓库页补全描述、Topics，确认 License 被识别为 Apache-2.0。
+- [x] **贡献者基础设施四件套**
+  - `CONTRIBUTING.md`（含代码纪律、新增检查器三步法、质量门禁）、
+    issue 模板（bug / feature）、PR 模板；
+  - README 增加「参与贡献」章节。
+- [x] **G-Star 前置准备（代码侧）**
+  - README 顶部加 AtomGit G-Star / Star / Fork / Download 官方徽章（硬性要求：项目内有 AtomGit 露出）；
+  - README 增加「托管与同步」章节，写明国内 AtomGit 官方托管地址与双端同步约定；
+  - `docs/AtomGit-logo.svg`（官方指南提供）随 README 展示。
+- [ ] **提交 G-Star 认证申请**（https://atomgit.com/g-star/apply）
+  - 需人工在 AtomGit 完成：仓库简介与头像、Topics、确认 License 被识别为 Apache-2.0、
+    可选开启仓库自动双向同步；评审周期 1-2 个工作日。
 
 ### Sprint 2 · v0.3.0（第 4~6 周）
 

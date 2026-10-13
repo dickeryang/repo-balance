@@ -1,0 +1,64 @@
+name: 缺陷反馈
+description: 提交仓衡的功能缺陷或异常行为
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！仓衡是**纯本地**工具：不联网、不采集数据。请勿粘贴含真实密钥、内网地址或商业代码的报告内容。
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 问题现象
+      description: 具体哪里不符合预期？附截图更佳。
+      placeholder: 扫描某仓库后「安全」维度始终显示 N/A……
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 越具体越好；可用 demo-repo 复现的说明可加速定位。
+      value: |
+        1. 打开应用 → 选择仓库 ……
+        2. 点击 ……
+        3. 出现 ……
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      placeholder: 0.1.0（README 右上角徽章 / 应用「关于」）
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: report
+    attributes:
+      label: 体检报告（可选）
+      description: 执行 `rb scan <仓库路径> --json` 的输出，记得脱敏路径与文件内的敏感值。
+      render: json

@@ -1,0 +1,43 @@
+name: 功能建议
+description: 提出新的检查项或改进建议
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决什么问题
+      description: 说明场景与痛点，而不是直接给方案。
+      placeholder: 团队仓库常出现……现有体检无法识别……
+    validations:
+      required: true
+
+  - type: dropdown
+    id: dim
+    attributes:
+      label: 所属维度
+      options:
+        - 结构（大文件等）
+        - 历史（提交习惯）
+        - 分支（僵尸分支）
+        - 依赖（依赖健康）
+        - 安全（敏感信息残留）
+        - 其他 / 跨维度
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望方案
+      description: 判定规则、阈值与严重度建议；有参考实现更好。
+    validations:
+      required: false
+
+  - type: textarea
+    id: baseline
+    attributes:
+      label: 已知边界
+      description: 哪些情况会误报/漏报？可接受的最小实现是什么？
+    validations:
+      required: false

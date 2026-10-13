@@ -1,6 +1,24 @@
 # 仓衡 RepoBalance
 
+[![AtomGit G-Star](https://atomgit.com/dickeryang/repo-balance/star/new_badge.svg)](https://atomgit.com/dickeryang/repo-balance)
+[![AtomGit Star](https://atomgit.com/dickeryang/repo-balance/star/badge.svg)](https://atomgit.com/dickeryang/repo-balance)
+[![AtomGit Fork](https://atomgit.com/dickeryang/repo-balance/fork/badge.svg)](https://atomgit.com/dickeryang/repo-balance)
+[![AtomGit Download](https://atomgit.com/dickeryang/repo-balance/download/badge.svg)](https://atomgit.com/dickeryang/repo-balance/releases)
+
 用华为云码道 CodeArts 代码智能体独立开发一个跨平台桌面应用「仓衡 · Git 仓库健康度体检台」，对本地 Git 仓库做结构化健康体检：大文件、僵尸分支、提交习惯、依赖健康、敏感信息残留扫描，输出可导出的体检报告。
+
+## 托管与同步
+
+本项目国内官方托管在 **AtomGit**，并参与 [AtomGit G-Star 开源摘星计划](https://atomgit.com/GitCode/G-Star_guiding)。
+
+<a href="https://atomgit.com/dickeryang/repo-balance"><img src="docs/AtomGit-logo.svg" alt="AtomGit" width="28"></a> [国内 AtomGit 托管：https://atomgit.com/dickeryang/repo-balance](https://atomgit.com/dickeryang/repo-balance)
+
+| 平台 | 地址 | 说明 |
+|---|---|---|
+| AtomGit（国内官方） | https://atomgit.com/dickeryang/repo-balance | 国内官方托管，G-Star 认证所在平台 |
+| GitHub（国际镜像） | https://github.com/dickeryang/repo-balance | 与 AtomGit 同步更新 |
+
+> **同步约定**：每次发布同一提交双端推送，保持两端内容一致。G-Star 要求多平台维护时同步更新不得晚于其他平台超过 1 个月，否则 AtomGit 有权取消认证；本项目以「双端同步推送」为发布标准动作。
 
 ## 演示
 
@@ -203,7 +221,6 @@ repo-balance/
 ### 近期（v0.2 ~ v0.3）
 
 - [ ] **历史持久化迁移**：localStorage → 应用数据目录文件，支持导出
-- [ ] **贡献者基础设施**：CONTRIBUTING / CODE_OF_CONDUCT / issue 与 PR 模板
 - [ ] **PDF 导出**
 
 ### 中长期（v0.5 → v1.0）
@@ -215,6 +232,13 @@ repo-balance/
 - [ ] **自定义规则**：JSON 配置驱动，后续演进为 WASM 沙箱插件机制
 - [ ] **官方 GitHub Action**、自动更新、Homebrew / Scoop / Winget 分发
 - [ ] **团队报告协作**：Report as Code，整改项 PR 评审闭环
+
+## 参与贡献
+
+欢迎提 issue 与 PR，完整流程、代码纪律与新增检查器的写法见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+
+- 缺陷与功能建议：使用 [issue 模板](.github/ISSUE_TEMPLATE)
+- 提交 PR：请对照 [PR 模板](.github/PULL_REQUEST_TEMPLATE.md) 的验证清单
 
 ## 许可证
 
