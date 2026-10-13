@@ -23,7 +23,7 @@ cargo tauri dev
 提交前必须通过全部质量门禁：
 
 ```bash
-cargo fmt --all -- --check        # 格式（rustfmt.toml：硬制表符 + 150 列 + 导入合并）
+cargo fmt --all -- --check        # 格式（rustfmt.toml：max_width = 100 + 字段初始化简写）
 cargo clippy --all-targets --workspace   # 静态检查（零 warning 为门禁）
 cargo test --workspace                   # 单元测试（含 git2 真实仓库夹具）
 cd ui && npm run lint && npm run build   # 前端 ESLint + 构建
@@ -73,6 +73,15 @@ cd ui && npm run lint && npm run build   # 前端 ESLint + 构建
 - 仓衡版本 / 操作系统 / 安装方式
 - 体检报告 JSON（`rb scan <path> --json`）
 
+> **安全漏洞请勿公开提交**，按 [`SECURITY.md`](SECURITY.md) 的私密渠道报告。
+> 「某类密钥漏报 / 示例值误报」属规则准确性问题，普通 issue 即可。
+
 ## 七、行为准则
 
-请保持友善、就事论事的技术讨论。维护者对骚扰、人身攻击等行为保留处置权利。
+参与本项目即表示你同意遵守 [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)（改编自 Contributor Covenant 2.1）。
+请保持友善、就事论事的技术讨论。
+
+## 八、版本与发布
+
+显著变更记录在 [`CHANGELOG.md`](CHANGELOG.md)（Keep a Changelog 格式 + 语义化版本）。
+发布流程：合并到 `master` → 打 `vX.Y.Z` tag → 触发打包 workflow 产出各平台安装包 → 双端推送 tag。

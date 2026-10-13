@@ -1,0 +1,34 @@
+# 换行符与文本属性（仓库内当前无 CRLF 文件，声明后不会产生批量改动）
+
+# 默认：交由 Git 判定文本文件，检出统一用 LF
+* text=auto eol=lf
+
+# 二进制资产：禁用文本转换与行内 diff
+*.gif  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.webp binary
+*.ico  binary
+*.icns binary
+*.dmg  binary
+*.msi  binary
+*.exe  binary
+*.bin  binary
+
+# 文本资源的 diff 驱动与语言标记
+*.rs   text diff=rust
+*.ts   text diff=javascript
+*.vue  text
+*.md   text
+*.svg  text
+
+# 语言统计口径：排除原型与生成物，避免失真
+docs/prototype/**  linguist-documentation
+docs/**/*.gif      linguist-detectable=false
+*.svg              linguist-detectable=false
+Cargo.lock         linguist-generated=true
+ui/package-lock.json linguist-generated=true
+
+# 演示仓库由脚本本地生成，不参与统计
+demo-repo/**       linguist-vendored

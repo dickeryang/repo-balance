@@ -28,7 +28,9 @@
 | CLI | ✅ | `rb scan <path> [--ci\|--json\|--quiet]` |
 | CI | ✅ | GitHub Actions：自体检 + Release 跨平台打包 |
 | 安全设计 | ✅ | CSP 最小集、权限最小集、纯本地零网络、evidence 掩码 |
-| 贡献者基础设施 | ✅ | CONTRIBUTING / issue 模板（bug+feature）/ PR 模板 |
+| 贡献者基础设施 | ✅ | CONTRIBUTING / CODE_OF_CONDUCT / SECURITY / CHANGELOG / issue 模板（bug+feature）/ PR 模板 / .editorconfig / .gitattributes |
+| 演示可复现 | ✅ | `scripts/build-demo-fixture.sh` 在全新克隆上自动初始化演示仓库（幂等，四类合成数据） |
+| 双语文档 | ✅ | `README.md` + `README_EN.md` 互链 |
 | AtomGit 露出 | ✅ | README 顶部 G-Star+Star+Fork+Download 徽章、托管与同步章节、AtomGit logo |
 | 双端同步 | ✅ | 同一提交推送 AtomGit + GitHub（G-Star 要求同步不超过 1 个月） |
 

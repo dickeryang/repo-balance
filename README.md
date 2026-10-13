@@ -32,6 +32,29 @@
 
 ![历史对比演示](docs/repobalance-git-demo-history-compare.gif)
 
+### 生成演示仓库（体验全部检查项）
+
+`demo-repo/` 是本地生成的合成样例（已被 `.gitignore` 忽略，克隆后并不存在）。一条命令即可创建：
+
+```bash
+bash scripts/build-demo-fixture.sh
+```
+
+脚本**幂等**、不重写或 amend 既有提交，产出四类合成数据：
+
+| 合成内容 | 演示的检查项 |
+|---|---|
+| `big.bin`（5 MiB，已提交且留在工作区） | 大文件 · Warning |
+| `.env`（含赋值配置） | 敏感信息残留 · Warning |
+| `old-branch`（含未合并 `wip` 提交） | 僵尸分支 · Info |
+| `leaked.txt`（`DEMO KEY` 占位块） | 敏感信息规则的「停用词白名单」形态（不产出结论） |
+
+随后可在应用内点击「试试演示仓库 demo-repo」，或用 CLI 直接体检：
+
+```bash
+cargo run -p rb-core --bin rb scan ./demo-repo
+```
+
 ## 技术栈
 
 | 层 | 技术 |
@@ -187,8 +210,15 @@ repo-balance/
 │   │   └── types/            # TS 类型镜像
 │   ├── package.json
 │   └── vite.config.ts
-├── docs/prototype/           # 产品原型 HTML
-├── scripts/                  # 夹具脚本
+├── docs/                     # 文档（路线图 / CI 集成 / 演示 GIF / 原型）
+│   ├── roadmap.md            # 权威路线图（现状盘点 / 阶段目标 / 验收标准）
+│   ├── ci-integration.md     # CI 接入指南
+│   └── prototype/            # 产品原型 HTML
+├── design/                   # 品牌资产
+│   ├── icon.svg              # 应用图标源文件
+│   ├── preview.png           # 1024×1024 图标预览（可直接用作代码平台项目头像）
+│   └── preview-64.png        # 64×64 图标
+├── scripts/                  # 夹具脚本（build-demo-fixture.sh）
 └── Cargo.toml                # workspace 根
 ```
 
@@ -241,6 +271,9 @@ repo-balance/
 
 - 缺陷与功能建议：使用 [issue 模板](.github/ISSUE_TEMPLATE)
 - 提交 PR：请对照 [PR 模板](.github/PULL_REQUEST_TEMPLATE.md) 的验证清单
+- 社区行为准则：[`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
+- 安全漏洞：请**勿**公开提交，按 [`SECURITY.md`](SECURITY.md) 的私密渠道报告
+- 版本变更记录：[`CHANGELOG.md`](CHANGELOG.md)
 
 ## 许可证
 

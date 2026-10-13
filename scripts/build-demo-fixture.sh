@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # 仓衡演示仓库夹具构建脚本（幂等，playbook 2.2）。
 # 用法：在主仓库根目录执行 bash scripts/build-demo-fixture.sh
-# 行为：为 demo-repo 补齐三类合成数据（leaked.txt / big.bin / old-branch），
-#       已满足的步骤自动跳过；不重写、删除或 Amend 既有提交。
+# 行为：
+#   1. demo-repo 不存在时自动初始化（main 分支 + init 提交），
+#      因此全新克隆的仓库也能一条命令生成可演示的样例仓库；
+#   2. 为 demo-repo 补齐四类合成数据
+#      （leaked.txt 占位密钥 / big.bin 大文件 / .env 敏感配置 / old-branch 僵尸分支）；
+#   3. 已满足的步骤自动跳过；不重写、删除或 Amend 既有提交。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,9 +21,23 @@ cd "$ROOT"
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   info "警告：主仓库存在未提交变更（本脚本不触碰主仓库已跟踪文件，继续执行）"
 fi
+
+# demo-repo 被主仓库 .gitignore 忽略，全新克隆时并不存在 —— 自动初始化，
+# 使「克隆即能演示」成立（否则 README 的演示步骤对访问者不可复现）。
 if [ ! -d "$DEMO/.git" ]; then
-  die "demo-repo 不存在或不是 git 仓库，请先初始化"
+  info "demo-repo 不存在，自动初始化演示仓库"
+  mkdir -p "$DEMO"
+  git init -q "$DEMO" || die "git init $DEMO 失败"
+  # 兼容旧版 git（无 init -b main）：直接改写 HEAD 符号引用
+  git -C "$DEMO" symbolic-ref HEAD refs/heads/main
+  git -C "$DEMO" config user.name "repo-balance-demo"
+  git -C "$DEMO" config user.email "demo@repo-balance.local"
+  printf '# demo\n' > "$DEMO/README.md"
+  git -C "$DEMO" add README.md
+  git -C "$DEMO" commit -q -m "init"
+  info "已初始化 demo-repo（main 分支 + init 提交）"
 fi
+
 cd "$DEMO"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$BRANCH" != "main" ]; then

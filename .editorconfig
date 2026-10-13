@@ -1,0 +1,31 @@
+# 跨编辑器统一编码风格；Rust 侧以 rustfmt.toml（max_width = 100）为准，
+# 前端以 ESLint + Vite 默认风格为准，本文件只声明二者共识的部分。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Rust：rustfmt 默认 4 空格缩进
+[*.rs]
+indent_size = 4
+
+# 前端与配置
+[*.{ts,tsx,vue,js,cjs,mjs,css,scss,html,json,yml,yaml,toml}]
+indent_size = 2
+
+# Shell 脚本（bash 3.2+ 兼容）
+[*.{sh,bash}]
+indent_size = 2
+
+# Markdown：保留行尾空格（换行语义）与对齐表格
+[*.md]
+trim_trailing_whitespace = false
+
+# 构建与依赖清单由工具生成，不做格式约束
+[{Cargo.lock,package-lock.json}]
+insert_final_newline = true

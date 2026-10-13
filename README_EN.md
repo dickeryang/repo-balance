@@ -34,6 +34,29 @@ The canonical hosting for China is **AtomGit**, and the project joins the [AtomG
 
 ![History comparison demo](docs/repobalance-git-demo-history-compare.gif)
 
+### Generate the demo repository (see every checker in action)
+
+`demo-repo/` is a synthetic sample generated locally (it is git-ignored, so a fresh clone does not contain it). One command creates it:
+
+```bash
+bash scripts/build-demo-fixture.sh
+```
+
+The script is **idempotent** and never rewrites or amends existing commits. It produces four kinds of synthetic data:
+
+| Fixture | Checker it exercises |
+|---|---|
+| `big.bin` (5 MiB, committed and still in the worktree) | Big files · Warning |
+| `.env` (with assignments) | Leaked secrets · Warning |
+| `old-branch` (holds an unmerged `wip` commit) | Zombie branches · Info |
+| `leaked.txt` (`DEMO KEY` placeholder block) | The secrets stop-word allowlist (produces no finding) |
+
+Then either click "试试演示仓库 demo-repo" in the app, or scan it from the CLI:
+
+```bash
+cargo run -p rb-core --bin rb scan ./demo-repo
+```
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -188,8 +211,15 @@ repo-balance/
 │   │   └── types/            # TS type mirrors
 │   ├── package.json
 │   └── vite.config.ts
-├── docs/prototype/           # Product prototype HTML
-├── scripts/                  # Fixture scripts
+├── docs/                     # Documentation (roadmap / CI integration / demo GIFs / prototype)
+│   ├── roadmap.md            # Authoritative roadmap (current state / goals / acceptance)
+│   ├── ci-integration.md     # CI integration guide
+│   └── prototype/            # Product prototype HTML
+├── design/                   # Brand assets
+│   ├── icon.svg              # App icon source
+│   ├── preview.png           # 1024×1024 icon preview (usable directly as a repo avatar)
+│   └── preview-64.png        # 64×64 icon
+├── scripts/                  # Fixture scripts (build-demo-fixture.sh)
 └── Cargo.toml                # Workspace root
 ```
 
@@ -254,6 +284,9 @@ Issues and PRs are welcome. The full workflow, code discipline and the three-ste
 
 - Bugs and feature requests: use the [issue templates](.github/ISSUE_TEMPLATE)
 - Pull requests: check off the validation list in the [PR template](.github/PULL_REQUEST_TEMPLATE.md)
+- Community standards: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) (Chinese)
+- Security issues: **do not** open a public issue — follow the private channels in [`SECURITY.md`](SECURITY.md) (Chinese)
+- Release notes: [`CHANGELOG.md`](CHANGELOG.md) (Chinese)
 
 ## License
 
