@@ -31,7 +31,7 @@ jobs:
         if: always()
         run: target/release/rb scan . --json > repo-balance-report.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: repo-balance-report
