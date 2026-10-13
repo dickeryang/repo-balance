@@ -1,5 +1,11 @@
 # 依赖自动升级：Rust / 前端 / GitHub Actions 三条链路
 # 许可证与已知漏洞由 ci.yml 的 supply-chain job（cargo-deny）持续把关。
+#
+# 策略：只自动提「补丁 / 小版本」更新，**大版本一律人工处理**。
+# 依据：本项目多数依赖锁在大版本语义上（Vite 4 / ESLint 8 / TypeScript 5 /
+# vue-eslint-parser 9 / Tauri 2），大版本升级必然破坏构建与配置，
+# 由 Dependabot 自动开 PR 只会产生大量红灯 PR、污染门禁信号；
+# 大版本升级按 docs/roadmap.md 的节奏手工评估后再改。
 version: 2
 updates:
   # Rust workspace（根 Cargo.toml 为 workspace 根）
@@ -15,11 +21,14 @@ updates:
       prefix: "chore(deps)"
     labels:
       - dependencies
-    # 补丁级更新合并为一个 PR，减少噪音；小版本/大版本单独评审
+    # 补丁级更新合并为一个 PR，减少噪音；小版本单独评审
     groups:
       cargo-patch:
         patterns: ["*"]
         update-types: ["patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # 前端（Vite / Vue / Element Plus 等）
   - package-ecosystem: npm
@@ -38,6 +47,9 @@ updates:
       npm-patch:
         patterns: ["*"]
         update-types: ["patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # 工作流自身用的 action 版本
   - package-ecosystem: github-actions
@@ -49,3 +61,6 @@ updates:
       prefix: "ci(deps)"
     labels:
       - dependencies
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
