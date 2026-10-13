@@ -6,7 +6,7 @@
 
 | 工具 | 版本 | 说明 |
 |---|---|---|
-| Rust | 1.77+ | `rustup update stable` |
+| Rust | 1.88+ | 依赖树 MSRV 下界，见根 `Cargo.toml` 的 `rust-version` |
 | Node.js | 14.18+ | Vite 4 最低要求 |
 | Tauri CLI | 2.x | `cargo install tauri-cli --version "^2"` |
 

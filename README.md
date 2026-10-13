@@ -6,6 +6,7 @@
 [![AtomGit Star](https://atomgit.com/dickeryang/repo-balance/star/badge.svg)](https://atomgit.com/dickeryang/repo-balance)
 [![AtomGit Fork](https://atomgit.com/dickeryang/repo-balance/fork/badge.svg)](https://atomgit.com/dickeryang/repo-balance)
 [![AtomGit Download](https://atomgit.com/dickeryang/repo-balance/download/badge.svg)](https://atomgit.com/dickeryang/repo-balance/releases)
+[![质量门禁](https://github.com/dickeryang/repo-balance/actions/workflows/ci.yml/badge.svg)](https://github.com/dickeryang/repo-balance/actions/workflows/ci.yml)
 
 用华为云码道 CodeArts 代码智能体独立开发一个跨平台桌面应用「仓衡 · Git 仓库健康度体检台」，对本地 Git 仓库做结构化健康体检：大文件、僵尸分支、提交习惯、依赖健康、敏感信息残留扫描，输出可导出的体检报告。
 
@@ -68,7 +69,7 @@ cargo run -p rb-core --bin rb scan ./demo-repo
 
 | 工具 | 最低版本 | 说明 |
 |---|---|---|
-| Rust | 1.77+ | `rustup update stable` |
+| Rust | 1.88+ | 依赖树 MSRV 下界（`darling` / `plist` / `time` 声明 1.88）；`rustup update stable` |
 | Node.js | 14.18+ | Vite 4 最低要求 |
 | npm | 6+ | 或 pnpm / yarn |
 | Windows SDK | 10+ | 仅 Windows 构建需要（dbghelp.lib + advapi32.lib） |
@@ -113,16 +114,24 @@ cargo run -p rb-app
 
 ### 3. 质量门禁
 
+以下命令与 CI（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）完全一致，提交前请本地跑通：
+
 ```bash
-# Rust 静态检查（零 warning）
-cargo clippy --all-targets --workspace
+# Rust 格式（rustfmt）
+cargo fmt --all -- --check
+
+# Rust 静态检查（零 warning 门禁）
+cargo clippy --all-targets --workspace -- -D warnings
 
 # Rust 测试
 cargo test --workspace
 
-# 前端构建
-cd ui && npm run build
+# 前端 lint + 构建
+cd ui && npm run lint && npm run build
 ```
+
+> CI 还包含两个独立 job：**依赖许可证与漏洞审计**（cargo-deny，门禁配置见 [`deny.toml`](deny.toml)）与
+> **rb-core 覆盖率摘要**（cargo-llvm-cov）。
 
 ## 打包发布
 

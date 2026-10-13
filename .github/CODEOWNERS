@@ -1,0 +1,24 @@
+# 评审归属（CODEOWNERS）
+# 语法：<路径模式> <@负责人>；后匹配的规则优先。
+# 单人维护期即声明归属，便于后续协作时无需改动分支保护配置。
+
+# 默认：全部文件由维护者评审
+*                                   @dickeryang
+
+# 检查器内核：安全与准确性关键路径（evidence 掩码、评分口径、切片采集）
+/crates/rb-core/src/checker/        @dickeryang
+/crates/rb-core/src/engine/         @dickeryang
+
+# 打包与权限配置：改动直接影响 CSP、权限最小集与产物可信度
+/crates/rb-app/tauri.conf.json      @dickeryang
+/crates/rb-app/capabilities/        @dickeryang
+
+# 供应链与流水线
+/.github/workflows/                 @dickeryang
+/.github/dependabot.yml             @dickeryang
+/deny.toml                          @dickeryang
+/Cargo.toml                         @dickeryang
+
+# 安全策略与行为准则
+/SECURITY.md                        @dickeryang
+/CODE_OF_CONDUCT.md                 @dickeryang

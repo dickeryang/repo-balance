@@ -1,11 +1,29 @@
 # AtomGit 流水线示例
 #
 # 在 AtomGit 仓库「流水线 / CI」设置中引用本文件即可。
-# 流水线会在 push / PR 时自动运行仓衡体检，
-# 存在 Critical 问题时标记失败。
+# 流水线分两段：
+#   1. 质量门禁：格式 / 静态检查 / 单元测试；
+#   2. 体检：用仓衡自身扫描仓库，存在 Critical 问题时标记失败。
+#
+# 注意：门禁只覆盖 rb-core（检查器内核）。rb-app 依赖 webkit2gtk 等桌面
+# 系统库，纯 rust 容器内无法编译；前端 lint 与桌面打包由 GitHub Actions
+# 侧的 ci.yml / build-desktop.yml 承担（见 README「质量门禁」章节）。
 
 stages:
+  - 质量门禁
   - 体检
+
+quality-gate:
+  stage: 质量门禁
+  image: rust:latest
+  script:
+    - cargo fmt --all -- --check
+    - cargo clippy -p rb-core --all-targets -- -D warnings
+    - cargo test -p rb-core
+  allow_failure: false
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 
 repo-balance:
   stage: 体检

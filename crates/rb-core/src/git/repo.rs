@@ -137,7 +137,7 @@ impl GitRepo {
                 .map_err(|e| RbError::Git(e.to_string()))?;
             commits.push(CommitSummary {
                 id: commit.id().to_string(),
-                summary: commit.summary().unwrap_or_default().to_owned(),
+                summary: commit_summary(&commit),
                 author: commit.author().name().unwrap_or_default().to_owned(),
                 time: commit.time().seconds(),
                 time_offset: commit.time().offset_minutes(),
@@ -278,7 +278,7 @@ impl GitRepo {
             let tip_commit = match self.repo.find_commit(tip_oid) {
                 Ok(c) => CommitSummary {
                     id: c.id().to_string(),
-                    summary: c.summary().unwrap_or_default().to_owned(),
+                    summary: commit_summary(&c),
                     author: c.author().name().unwrap_or_default().to_owned(),
                     time: c.time().seconds(),
                     time_offset: c.time().offset_minutes(),
@@ -465,6 +465,21 @@ impl GitRepo {
 
 /// 处理一批提交：解析每棵提交树并收集 blob 的（路径、oid、大小、所属提交摘要）。
 ///
+/// 提交摘要（容错取值）。
+///
+/// git2 0.21 起 `Commit::summary()` 返回 `Result<Option<&str>, Error>`
+/// （0.19 为 `Option<&str>`）：摘要可能缺失，也可能不是合法 UTF-8。
+/// 二者均回退为空串，保持与升级前一致的宽容语义——摘要仅用于展示，
+/// 不应因个别异常提交而中断整次扫描。
+fn commit_summary(commit: &git2::Commit<'_>) -> String {
+    commit
+        .summary()
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+        .to_owned()
+}
+
 /// 单对象解析失败跳过继续（对象级容错）；仅读对象头 `size()`，零内容读取。
 fn process_batch(workdir: &Path, batch: &[git2::Oid]) -> Vec<(String, String, u64, CommitSummary)> {
     let mut out = Vec::new();
@@ -477,7 +492,7 @@ fn process_batch(workdir: &Path, batch: &[git2::Oid]) -> Vec<(String, String, u6
         };
         let summary = CommitSummary {
             id: commit.id().to_string(),
-            summary: commit.summary().unwrap_or_default().to_owned(),
+            summary: commit_summary(&commit),
             author: commit.author().name().unwrap_or_default().to_owned(),
             time: commit.time().seconds(),
             time_offset: commit.time().offset_minutes(),
@@ -502,7 +517,8 @@ fn collect_tree_blobs(
         return;
     };
     for entry in tree.iter() {
-        let Some(name) = entry.name() else {
+        // git2 0.21 起 name() 返回 Result（非 UTF-8 名报错）；与旧版一致跳过
+        let Ok(name) = entry.name() else {
             continue;
         };
         let path = if prefix.is_empty() {

@@ -6,6 +6,7 @@
 [![AtomGit Star](https://atomgit.com/dickeryang/repo-balance/star/badge.svg)](https://atomgit.com/dickeryang/repo-balance)
 [![AtomGit Fork](https://atomgit.com/dickeryang/repo-balance/fork/badge.svg)](https://atomgit.com/dickeryang/repo-balance)
 [![AtomGit Download](https://atomgit.com/dickeryang/repo-balance/download/badge.svg)](https://atomgit.com/dickeryang/repo-balance/releases)
+[![CI](https://github.com/dickeryang/repo-balance/actions/workflows/ci.yml/badge.svg)](https://github.com/dickeryang/repo-balance/actions/workflows/ci.yml)
 
 RepoBalance ("仓衡", *cāng héng* — a granary scale) is a cross-platform desktop app that runs a structured health checkup on your local Git repositories: large files, zombie branches, commit habits, dependency health and leaked secrets, producing an exportable checkup report. It was built independently with the Huawei Cloud CodeArts coding agent.
 
@@ -70,7 +71,7 @@ cargo run -p rb-core --bin rb scan ./demo-repo
 
 | Tool | Minimum | Notes |
 |---|---|---|
-| Rust | 1.77+ | `rustup update stable` |
+| Rust | 1.88+ | Dependency-graph MSRV floor (`darling` / `plist` / `time` declare 1.88); `rustup update stable` |
 | Node.js | 14.18+ | Required by Vite 4 |
 | npm | 6+ | or pnpm / yarn |
 | Windows SDK | 10+ | Windows builds only (`dbghelp.lib` + `advapi32.lib`) |
@@ -115,16 +116,23 @@ cargo run -p rb-app
 
 ### 3. Quality gates
 
+These are exactly the checks CI runs ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) — please run them locally before pushing:
+
 ```bash
-# Rust lint (must be warning-free)
-cargo clippy --all-targets --workspace
+# Rust formatting (rustfmt)
+cargo fmt --all -- --check
+
+# Rust lint (warnings are errors)
+cargo clippy --all-targets --workspace -- -D warnings
 
 # Rust tests
 cargo test --workspace
 
-# Frontend build
-cd ui && npm run build
+# Frontend lint + build
+cd ui && npm run lint && npm run build
 ```
+
+> CI also runs two separate jobs: **dependency licence & vulnerability audit** (cargo-deny, configured in [`deny.toml`](deny.toml)) and a **rb-core coverage summary** (cargo-llvm-cov).
 
 ## Build & Release
 

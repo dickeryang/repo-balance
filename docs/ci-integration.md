@@ -26,19 +26,36 @@ rb scan <path> [--ci|--json|--quiet]
 
 ## GitHub Actions
 
-参考 `.github/workflows/repo-balance.yml`，核心步骤：
+参考 `.github/workflows/repo-balance.yml`，核心步骤（在**仓库根目录**执行，产物落在 `target/release/`）：
 
 ```yaml
+- name: 构建 rb CLI
+  run: cargo build --release -p rb-core
+
 - name: 运行仓衡体检
-  run: ../target/release/rb scan . --ci
-  working-directory: crates/rb-core
+  run: target/release/rb scan . --ci
 ```
 
 流水线在 push / PR 时触发，存在 Critical 问题时自动失败。
 
+## 本仓库自身的流水线
+
+本仓库用多条职责正交的流水线，可作接入参考：
+
+| 流水线 | 文件 | 职责 |
+|---|---|---|
+| 质量门禁 | `.github/workflows/ci.yml` | 格式 / clippy（零 warning）/ 单元测试 / 前端 lint 与构建；依赖许可证与漏洞审计（`deny.toml` + cargo-deny）；rb-core 覆盖率摘要 |
+| 自身体检 | `.github/workflows/repo-balance.yml` | `rb scan . --ci` 扫描本仓库，存在 Critical 结论即失败 |
+| 桌面打包 | `.github/workflows/build-desktop.yml` | tag 触发，Windows / macOS / Linux 三平台安装包 |
+| AtomGit 流水线 | `ci/atomgit-pipeline.yml` | AtomGit 侧的质量门禁（rb-core）+ 自身体检 |
+
+> 格式门禁为 `cargo fmt --all -- --check`，本地提交前请先执行；完整贡献流程见 `CONTRIBUTING.md`。
+
 ## AtomGit 流水线
 
 参考 `ci/atomgit-pipeline.yml`，在 AtomGit 仓库「流水线」设置中引用即可。
+该文件分「质量门禁」（格式 / clippy / 测试，覆盖 rb-core）与「体检」两段；
+`rb-app` 依赖 webkit2gtk 等桌面系统库，不在容器内构建。
 
 ## 通用 Shell 示例
 

@@ -1,0 +1,69 @@
+# 依赖治理门禁（cargo-deny）
+#
+# 本项目自身以 Apache-2.0 发布，且对外承诺「纯本地零网络、零数据外发」，
+# 因此供应链需要可审计：许可证白名单 + 已知漏洞 + 依赖来源三线把关。
+#
+# 白名单由依赖树实际许可证分布归纳（cargo metadata 统计），
+# 新增依赖时若触发未允许许可证，请先评估兼容性再决定是否放行。
+#
+# 用法：cargo deny check    （本地）
+#       CI 见 .github/workflows/ci.yml 的 supply-chain job
+
+[advisories]
+version = 2
+# 已知漏洞：任何安全公告（vulnerability）直接阻断，由 CI 拦住升级
+# 被 yank 的版本仅告警（依赖树内已锁定，不影响可构建性）
+yanked = "warn"
+# 「未维护」只检查本项目直接依赖（workspace 范围），避免 Tauri 庞大传递
+# 依赖树里的陈旧 crate 淹没真正需要处理的公告
+unmaintained = "workspace"
+# 健全性问题（unsound）覆盖全图：这类公告极少，但一旦命中即为隐患
+unsound = "all"
+ignore = [
+    # RUSTSEC-2024-0429：glib 0.18.5 的 `VariantStrIter` 迭代器实现不健全（UB）。
+    # 处置依据：
+    #   1) 仅 Linux 生效，来自桌面栈传递依赖（tauri → wry/tao → gtk 0.18 → glib 0.18），
+    #      本项目代码未直接使用 GLib，更未触碰 VariantStrIter；
+    #   2) 修复需上游把 gtk-rs 栈整体升到已修复版本，实测 `cargo update -p glib`
+    #      锁定 0 个包（被 gtk 0.18 约束），非本项目可单方解决。
+    # 复核时机：Tauri 升级 gtk-rs 依赖后删除本条并重新评估。
+    "RUSTSEC-2024-0429",
+]
+
+[licenses]
+version = 2
+# 置信度：cargo-deny 对许可证文本的自动识别阈值
+confidence-threshold = 0.9
+# 本项目 workspace 内成员未发布到 registry，不参与许可证核查
+private = { ignore = true }
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "Unlicense",
+    "0BSD",
+    # MPL-2.0 为文件级弱著佐权，与 Apache-2.0 兼容；
+    # 依赖树中来自 CSS 解析链（cssparser / selectors / dtoa-short / option-ext）
+    "MPL-2.0",
+]
+# 白名单里目前用不到的条目给出提示，便于及时收敛
+unused-allowed-license = "warn"
+
+[bans]
+# 同一 crate 多版本在 Tauri 生态中很常见（仅体积与编译时间代价），告警不阻断
+multiple-versions = "warn"
+# 通配符版本需求（传递依赖中偶见）默认告警
+wildcards = "warn"
+highlight = "all"
+
+[sources]
+# 供应链底线：只允许官方 registry，禁止 git 与未知 registry 来源
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

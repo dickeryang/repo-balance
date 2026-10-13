@@ -24,16 +24,33 @@
 
 ### 修复
 
+- **安全：`git2` 0.19 → 0.21**（依赖树审计发现 3 条 unsound 公告）
+  - RUSTSEC-2026-0008（`Buf` 解引用产生未定义行为，修复版 ≥ 0.20.4）
+  - RUSTSEC-2026-0183（`Remote::list()` 空指针，修复版 ≥ 0.21.0）
+  - RUSTSEC-2026-0184（`BlameHunk` 空指针签名，修复版 ≥ 0.21.0）
+  - 适配 0.21 的 API 变更：`Commit::summary()` 由 `Option<&str>` 变为 `Result<Option<&str>>`（新增容错取值 helper），`TreeEntry::name()` 由 `Option<&str>` 变为 `Result<&str>`（非 UTF-8 名跳过，语义不变）
+  - 剩余 `glib` 0.18 不健全公告（RUSTSEC-2024-0429）登记为带说明的豁免：来自 Linux GTK 传递依赖，修复需上游升级 gtk-rs 栈
 - **评分口径**：无检查器覆盖的维度此前恒为 100 分（雷达图 4/5 为占位假数据），现改为 N/A；总分 = 已覆盖维度平均
 - **打包后前端白屏**：`cargo build --release -p rb-app` 未启用 `custom-protocol`，`tauri-build` 置 `cfg(dev)` 导致不内嵌前端资源、改从 `devUrl` 加载。补齐 `custom-protocol` feature 声明并修正 README 构建命令
 - **窗口初始位置**：窗口可能被放至非主显示器，现固定居中于主屏
 - **前端 ESLint 配置失效**：`@typescript-eslint/recommended` 引用错误导致 `npm run lint` 直接崩溃，现修正解析器分区与 `dist` 排除
 - **依赖误报**：`node_modules/` 内的嵌套清单/锁定文件不再被当作仓库自身依赖口径
+- **格式归一**：`rustfmt` 对 21 个文件做纯格式化（此前代码不符合自己声明的格式规范）
+- **MSRV 声明**：README/`Cargo.toml` 由「Rust 1.77+」修正为 **1.88+**（依赖树实测下界，1.77 无法构建）
 
 ### 变更
 
 - 报告与导出中的维度评分改为可空；未覆盖维度在界面显示 N/A
 - `.repobalance-ignore` 语义扩展：内置默认忽略项与用户规则合并，用户否定规则优先级更高
+
+### 工程与流程
+
+- **CI 质量门禁**（新增 `.github/workflows/ci.yml`）：rustfmt / clippy（`-D warnings`）/ 单元测试 / 前端 lint 与构建，与 PR 模板承诺的门禁一一对应
+- **供应链审计**：`deny.toml` + cargo-deny（许可证白名单、漏洞、依赖来源），CI 独立 job 执行；Dependabot 每周自动升级（Rust / npm / Actions）
+- **覆盖率**：rb-core 覆盖率摘要（cargo-llvm-cov）纳入 CI
+- **评审归属**：新增 `.github/CODEOWNERS`
+- **打包矩阵**：新增 Linux（`.deb` / `.AppImage`），消除 README 声称产出 Linux 包但 CI 不构建的不一致
+- **AtomGit 流水线**：增加「质量门禁」阶段（格式 / clippy / rb-core 测试）
 
 ## [0.1.0] - 2026-10-06
 

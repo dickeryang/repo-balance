@@ -26,7 +26,10 @@
 | 扫描历史与对比 | ✅ | localStorage 持久化，新增/消除问题项对比 |
 | 国际化 | ✅ | 中英切换（自写字典） |
 | CLI | ✅ | `rb scan <path> [--ci\|--json\|--quiet]` |
-| CI | ✅ | GitHub Actions：自体检 + Release 跨平台打包 |
+| CI | ✅ | 质量门禁（fmt / clippy -D warnings / test / 前端 lint+build）+ 自体检 + Release 跨平台打包（含 Linux） |
+| 供应链治理 | ✅ | `deny.toml`（许可证白名单 / 漏洞 / 来源，cargo-deny）、Dependabot 周更、`.github/CODEOWNERS` |
+| 覆盖率 | ✅ | rb-core 覆盖率摘要纳入 CI（cargo-llvm-cov） |
+| MSRV | ✅ | 声明 `rust-version = 1.88`（依赖树实测下界），CI 与实际一致 |
 | 安全设计 | ✅ | CSP 最小集、权限最小集、纯本地零网络、evidence 掩码 |
 | 贡献者基础设施 | ✅ | CONTRIBUTING / CODE_OF_CONDUCT / SECURITY / CHANGELOG / issue 模板（bug+feature）/ PR 模板 / .editorconfig / .gitattributes |
 | 演示可复现 | ✅ | `scripts/build-demo-fixture.sh` 在全新克隆上自动初始化演示仓库（幂等，四类合成数据） |

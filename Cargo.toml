@@ -7,11 +7,14 @@ exclude = ["demo-repo"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+# MSRV：依赖树中最高声明（darling / plist / time 等为 1.88），
+# 由 cargo metadata 实测得出，勿凭印象下调。
+rust-version = "1.88"
 license = "Apache-2.0"
 authors = ["repo-balance contributors"]
 
 [workspace.dependencies]
-git2 = { version = "0.19", default-features = false }
+git2 = { version = "0.21", default-features = false }
 rayon = "1.10"
 regex = "1"
 serde = { version = "1.0", features = ["derive"] }

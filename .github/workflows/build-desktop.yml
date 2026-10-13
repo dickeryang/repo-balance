@@ -17,9 +17,25 @@ jobs:
             args: ""
           - os: macos-latest
             args: "--target universal-apple-darwin"
+          - os: ubuntu-22.04
+            args: ""
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      # Linux 首次构建需装齐 Tauri 2 的系统依赖，否则 webkit2gtk 链接失败
+      - name: 安装 Linux 系统依赖
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
@@ -60,5 +76,8 @@ jobs:
           path: |
             target/release/bundle/**/*.exe
             target/release/bundle/**/*.msi
+            target/release/bundle/**/*.deb
+            target/release/bundle/**/*.AppImage
+            target/release/bundle/**/*.rpm
             target/universal-apple-darwin/release/bundle/**/*.dmg
             target/universal-apple-darwin/release/bundle/**/*.app

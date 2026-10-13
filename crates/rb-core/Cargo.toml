@@ -1,5 +1,6 @@
 [package]
 name = "rb-core"
+rust-version.workspace = true
 description = "仓衡检查器内核：零 tauri 依赖，可独立编译为 CLI"
 version.workspace = true
 edition.workspace = true

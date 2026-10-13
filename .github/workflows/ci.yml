@@ -1,0 +1,104 @@
+# 质量门禁：与「RepBalance 体检」工作流互补——本工作流负责代码质量
+# （格式 / 静态检查 / 测试 / 前端 lint），体检工作流负责任务式仓库扫描。
+#
+# PR 模板要求贡献者勾选 fmt / clippy / test / lint 四项，本工作流将其
+# 转为强制门禁：任一项失败即红灯，未过门禁的变更不允许合并。
+name: 质量门禁
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  quality:
+    name: 格式 · 静态检查 · 测试 · 前端
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: 安装前端依赖
+        run: npm ci
+        working-directory: ui
+
+      # rb-app 经 tauri-build 内嵌 ui/dist，编译期即要求该目录存在，
+      # 因此必须先构建前端，否则 cargo test/clippy 会在 rb-app 处失败。
+      - name: 构建前端（产出 ui/dist 供 rb-app 编译内嵌）
+        run: npm run build
+        working-directory: ui
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust 缓存
+        uses: Swatinem/rust-cache@v2
+
+      - name: 安装 Linux 系统依赖（Tauri 2 编译期依赖）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf
+
+      - name: 格式检查（rustfmt）
+        run: cargo fmt --all -- --check
+
+      - name: 静态检查（clippy，零 warning 门禁）
+        run: cargo clippy --all-targets --workspace -- -D warnings
+
+      - name: 单元测试
+        run: cargo test --workspace
+
+      - name: 前端 lint（ESLint）
+        run: npm run lint
+        working-directory: ui
+
+  # 依赖治理独立成 job：失败原因（许可证 / 已知漏洞 / 重复版本）与代码缺陷
+  # 正交，独立呈现便于定位；非代码变更时仍会执行以守住供应链底线。
+  supply-chain:
+    name: 依赖许可证与漏洞审计
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  # 覆盖率仅统计 rb-core（检查器内核，逻辑主体）；不含 rb-app，
+  # 以免为此安装 Tauri 桌面依赖拖慢流水线。
+  coverage:
+    name: 覆盖率（rb-core）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: 生成覆盖率摘要
+        run: cargo llvm-cov -p rb-core --summary-only
