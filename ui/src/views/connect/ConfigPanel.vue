@@ -11,6 +11,7 @@ const { t } = useI18n()
 const CHECKER_LABEL_KEYS: Record<string, string> = {
   'big-files': 'config.checker.bigFiles',
   secrets: 'config.checker.secrets',
+  'conflict-markers': 'config.checker.conflictMarkers',
   'zombie-branches': 'config.checker.zombieBranches',
   'commit-habits': 'config.checker.commitHabits',
   'deps-health': 'config.checker.depsHealth',

@@ -6,6 +6,7 @@
 
 pub mod big_files;
 pub mod commit_habits;
+pub mod conflict_markers;
 pub mod context;
 pub mod deps_health;
 pub mod noop;
@@ -19,6 +20,7 @@ use crate::Result;
 
 pub use big_files::BigFilesChecker;
 pub use commit_habits::CommitHabitsChecker;
+pub use conflict_markers::ConflictMarkersChecker;
 pub use context::{ScanConfig, ScanContext, SliceData};
 pub use deps_health::DepsHealthChecker;
 pub use noop::NoopChecker;

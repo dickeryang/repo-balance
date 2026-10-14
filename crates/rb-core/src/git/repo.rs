@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::model::scale::{ScaleEstimate, ScaleLevel};
 use crate::model::slice_meta::{
     BlobMeta, BranchMeta, DepFileContent, DepFileKind, DepFileMeta, Ecosystem, FileContent,
-    FileMeta,
+    FileMeta, HistoryFileContent,
 };
 use crate::model::snapshot::{CommitSummary, RepoSnapshot};
 use crate::{error::RbError, Result};
@@ -443,52 +443,13 @@ impl GitRepo {
         limit: &HistoryLimit,
     ) -> Result<Vec<BlobMeta>> {
         let workdir = self.workdir_path()?;
-
-        // 多起点 revwalk：全部本地分支 tip（覆盖未合并分支对象）。
-        let branch_iter = self
-            .repo
-            .branches(Some(git2::BranchType::Local))
-            .map_err(|e| RbError::Git(e.to_string()))?;
-        let mut tips = Vec::new();
-        for item in branch_iter {
-            let (branch, _) = item.map_err(|e| RbError::Git(e.to_string()))?;
-            if let Some(oid) = branch.get().target() {
-                tips.push(oid);
-            }
-        }
-        if tips.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let mut revwalk = self
-            .repo
-            .revwalk()
-            .map_err(|e| RbError::Git(e.to_string()))?;
-        for tip in tips {
-            if let Err(e) = revwalk.push(tip) {
-                return Err(RbError::Git(e.to_string()));
-            }
-        }
-        // 时间倒序（最新在前）：限流只保留「最新 N 个」提交，时间窗也只需从
-        // 最新端扫到首个越界提交即可截断，无需遍历全量。
-        revwalk
-            .set_sorting(git2::Sort::TIME)
-            .map_err(|e| RbError::Git(e.to_string()))?;
-
-        // 主线程单遍收集可达提交 oid，单对象解析失败跳过。
-        let mut commit_oids = Vec::new();
-        for oid in revwalk.flatten() {
-            commit_oids.push(oid);
-        }
-        let mut commit_oids = self.apply_history_limit(commit_oids, limit);
-        // 翻转为时间正序（最旧在前）后处理，保证「首次引入」语义与限流前一致。
-        commit_oids.reverse();
+        let commit_oids = self.limited_commit_oids(limit)?;
+        let total_commits = commit_oids.len();
 
         // 分批处理：每批独立开仓（Repository Send 非 Sync 硬约束）。
         // 改为顺序处理以在批次边界检查取消标志（大仓库场景下批次少，
         // 取消响应延迟可接受；后续可恢复并行 + 批间检查）。
         let width = batch_size.max(1);
-        let total_commits = commit_oids.len();
         if let Some(cb) = on_progress {
             cb(0, total_commits);
         }
@@ -534,6 +495,117 @@ impl GitRepo {
                 .then(a.first_commit.id.cmp(&b.first_commit.id))
         });
         Ok(metas)
+    }
+
+    /// 采集历史 blob **内容视图**（受预算约束，供历史口径的文本内容检查）。
+    ///
+    /// 与 [`Self::history_blob_metas`] 的差别：对去重后的每个 (路径, blob)
+    /// 读取文本内容。预算口径（编排层传入，防 pathological 仓库读爆内存/耗时）：
+    /// - 单 blob 超过 `per_file_cap` 字节 → `content = None`（仅元数据）；
+    /// - 累计读取达到 `total_budget` 字节 → 后续 blob `content = None`；
+    /// - 前 8 KiB 含 NUL 字节判定为二进制 → `content = None`；
+    /// - UTF-8 解码失败按 lossy 处理（替换字符），不阻断扫描。
+    ///
+    /// 其余语义（多起点 revwalk、限流、窗口边界排除、按 (路径, blob) 去重保留
+    /// 最早提交、批次边界取消、进度回调）与 [`Self::history_blob_metas`] 一致。
+    #[allow(clippy::too_many_arguments)]
+    pub fn history_file_contents(
+        &self,
+        batch_size: usize,
+        per_file_cap: u64,
+        total_budget: u64,
+        cancel_flag: Option<&AtomicBool>,
+        on_progress: Option<&dyn Fn(usize, usize)>,
+        limit: &HistoryLimit,
+    ) -> Result<Vec<HistoryFileContent>> {
+        let workdir = self.workdir_path()?;
+        let commit_oids = self.limited_commit_oids(limit)?;
+        let total_commits = commit_oids.len();
+
+        let width = batch_size.max(1);
+        if let Some(cb) = on_progress {
+            cb(0, total_commits);
+        }
+        let preexisting = self.preexisting_blob_keys(commit_oids.first(), limit);
+
+        let mut processed_commits = 0usize;
+        // 已见 (路径, blob) 集合：时间正序遍历，首见即「首次引入」。
+        let mut seen: HashSet<(String, String)> = HashSet::new();
+        let mut out: Vec<HistoryFileContent> = Vec::new();
+        let mut spent: u64 = 0;
+        for batch in commit_oids.chunks(width) {
+            if let Some(flag) = cancel_flag {
+                if flag.load(Ordering::Relaxed) {
+                    break;
+                }
+            }
+            process_batch_with_content(
+                &workdir,
+                batch,
+                &preexisting,
+                &mut seen,
+                &mut out,
+                &mut spent,
+                per_file_cap,
+                total_budget,
+            );
+            processed_commits += batch.len();
+            if let Some(cb) = on_progress {
+                cb(processed_commits, total_commits);
+            }
+        }
+        out.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then(a.first_commit.time.cmp(&b.first_commit.time))
+                .then(a.first_commit.id.cmp(&b.first_commit.id))
+        });
+        Ok(out)
+    }
+
+    /// 多起点 revwalk 收集全部本地分支可达提交 oid，应用限流后返回
+    /// 时间正序（最旧在前）列表；供历史采集的元数据 / 内容两种口径复用。
+    fn limited_commit_oids(&self, limit: &HistoryLimit) -> Result<Vec<git2::Oid>> {
+        // 多起点 revwalk：全部本地分支 tip（覆盖未合并分支对象）。
+        let branch_iter = self
+            .repo
+            .branches(Some(git2::BranchType::Local))
+            .map_err(|e| RbError::Git(e.to_string()))?;
+        let mut tips = Vec::new();
+        for item in branch_iter {
+            let (branch, _) = item.map_err(|e| RbError::Git(e.to_string()))?;
+            if let Some(oid) = branch.get().target() {
+                tips.push(oid);
+            }
+        }
+        if tips.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut revwalk = self
+            .repo
+            .revwalk()
+            .map_err(|e| RbError::Git(e.to_string()))?;
+        for tip in tips {
+            if let Err(e) = revwalk.push(tip) {
+                return Err(RbError::Git(e.to_string()));
+            }
+        }
+        // 时间倒序（最新在前）：限流只保留「最新 N 个」提交，时间窗也只需从
+        // 最新端扫到首个越界提交即可截断，无需遍历全量。
+        revwalk
+            .set_sorting(git2::Sort::TIME)
+            .map_err(|e| RbError::Git(e.to_string()))?;
+
+        // 主线程单遍收集可达提交 oid，单对象解析失败跳过。
+        let mut commit_oids = Vec::new();
+        for oid in revwalk.flatten() {
+            commit_oids.push(oid);
+        }
+        let mut commit_oids = self.apply_history_limit(commit_oids, limit);
+        // 翻转为时间正序（最旧在前）后处理，保证「首次引入」语义与限流前一致。
+        commit_oids.reverse();
+        Ok(commit_oids)
     }
 
     /// 按 [`HistoryLimit`] 裁剪提交列表（输入为时间倒序，输出仍为时间倒序）。
@@ -688,6 +760,127 @@ fn process_batch(workdir: &Path, batch: &[git2::Oid]) -> Vec<(String, String, u6
         collect_tree_blobs(&repo, tree.id(), "", &mut out, &summary);
     }
     out
+}
+
+/// [`process_batch`] 的内容版：收集去重后的 (路径, blob) 并按预算读取文本内容。
+///
+/// 调用方约定：`batch` 按时间正序、跨批共享 `seen` / `out` / `spent`，
+/// 首次出现的 (路径, blob) 即「首次引入」语义。预算口径见
+/// [`GitRepo::history_file_contents`]（单文件上限 / 总预算 / 二进制判定）。
+#[allow(clippy::too_many_arguments)]
+fn process_batch_with_content(
+    workdir: &Path,
+    batch: &[git2::Oid],
+    preexisting: &HashSet<(String, String)>,
+    seen: &mut HashSet<(String, String)>,
+    out: &mut Vec<HistoryFileContent>,
+    spent: &mut u64,
+    per_file_cap: u64,
+    total_budget: u64,
+) {
+    let Ok(repo) = git2::Repository::open(workdir) else {
+        return;
+    };
+    for oid in batch {
+        let Ok(commit) = repo.find_commit(*oid) else {
+            continue;
+        };
+        let summary = CommitSummary {
+            id: commit.id().to_string(),
+            summary: commit_summary(&commit),
+            author: commit.author().name().unwrap_or_default().to_owned(),
+            time: commit.time().seconds(),
+            time_offset: commit.time().offset_minutes(),
+        };
+        let Ok(tree) = commit.tree() else {
+            continue;
+        };
+        collect_tree_blobs_with_content(
+            &repo,
+            tree.id(),
+            "",
+            &summary,
+            preexisting,
+            seen,
+            out,
+            spent,
+            per_file_cap,
+            total_budget,
+        );
+    }
+}
+
+/// 递归收集树中 blob 的 (路径, oid) + 元数据，去重后按预算读取文本内容。
+#[allow(clippy::too_many_arguments)]
+fn collect_tree_blobs_with_content(
+    repo: &git2::Repository,
+    tree_id: git2::Oid,
+    prefix: &str,
+    summary: &CommitSummary,
+    preexisting: &HashSet<(String, String)>,
+    seen: &mut HashSet<(String, String)>,
+    out: &mut Vec<HistoryFileContent>,
+    spent: &mut u64,
+    per_file_cap: u64,
+    total_budget: u64,
+) {
+    let Ok(tree) = repo.find_tree(tree_id) else {
+        return;
+    };
+    for entry in tree.iter() {
+        // git2 0.21 起 name() 返回 Result（非 UTF-8 名报错）；与旧版一致跳过
+        let Ok(name) = entry.name() else {
+            continue;
+        };
+        let path = if prefix.is_empty() {
+            name.to_owned()
+        } else {
+            format!("{prefix}/{name}")
+        };
+        match entry.kind() {
+            Some(git2::ObjectType::Tree) => collect_tree_blobs_with_content(
+                repo,
+                entry.id(),
+                &path,
+                summary,
+                preexisting,
+                seen,
+                out,
+                spent,
+                per_file_cap,
+                total_budget,
+            ),
+            Some(git2::ObjectType::Blob) => {
+                let key = (path, entry.id().to_string());
+                if preexisting.contains(&key) || seen.contains(&key) {
+                    continue;
+                }
+                let size = repo
+                    .find_blob(entry.id())
+                    .map(|b| b.size() as u64)
+                    .unwrap_or(0);
+                let mut content = None;
+                if size <= per_file_cap && *spent < total_budget {
+                    if let Ok(blob) = repo.find_blob(entry.id()) {
+                        let bytes = blob.content();
+                        if !is_binary(bytes) {
+                            let text = String::from_utf8_lossy(bytes).into_owned();
+                            *spent += bytes.len() as u64;
+                            content = Some(text);
+                        }
+                    }
+                }
+                seen.insert(key.clone());
+                out.push(HistoryFileContent {
+                    path: key.0,
+                    size,
+                    first_commit: summary.clone(),
+                    content,
+                });
+            }
+            _ => {}
+        }
+    }
 }
 
 /// 递归收集树中全部 blob 的（路径、oid、大小）+ 所属提交摘要。
@@ -1181,6 +1374,85 @@ mod tests {
             since: Some(0)
         }
         .is_limited());
+    }
+
+    /// 历史内容采集：去重保留首次引入提交；二进制 blob 内容为 None；
+    /// 总预算耗尽后仅采元数据。
+    #[test]
+    fn 历史内容采集_去重与预算与二进制() {
+        let mut t = TestRepo::init();
+        t.commit(
+            &[("a.txt", b"<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> feat\n")],
+            "conflict",
+        );
+        t.commit(&[("a.txt", b"fixed\n")], "fix");
+        t.commit(&[("blob.bin", &[0u8, 1, 0, 2])], "add binary");
+        let git = GitRepo::open(t.path()).unwrap();
+
+        let files = git
+            .history_file_contents(
+                64,
+                1_048_576,
+                64 * 1_048_576,
+                None,
+                None,
+                &HistoryLimit::default(),
+            )
+            .unwrap();
+        let conflicted = files
+            .iter()
+            .find(|f| f.path == "a.txt" && f.content.as_deref().unwrap_or("").contains("<<<<<<<"))
+            .expect("冲突 blob 应在历史内容中");
+        assert_eq!(conflicted.first_commit.summary, "conflict");
+        let fixed = files
+            .iter()
+            .find(|f| f.path == "a.txt" && f.content.as_deref() == Some("fixed\n"))
+            .expect("修复版 blob 应在历史内容中");
+        assert_eq!(fixed.first_commit.summary, "fix");
+        let bin = files.iter().find(|f| f.path == "blob.bin").unwrap();
+        assert_eq!(bin.content, None, "二进制 blob 内容应为 None");
+
+        // 总预算为 0：全部仅元数据（content = None），条目不丢。
+        let files = git
+            .history_file_contents(64, 1_048_576, 0, None, None, &HistoryLimit::default())
+            .unwrap();
+        assert_eq!(files.len(), 3);
+        assert!(files.iter().all(|f| f.content.is_none()));
+    }
+
+    /// 历史内容采集限流：窗口外提交引入的 blob（父树已存在）不产出条目。
+    #[test]
+    fn 历史内容采集_限流窗口外不产出() {
+        let mut t = TestRepo::init();
+        t.commit(
+            &[("a.txt", b"<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> feat\n")],
+            "conflict",
+        );
+        t.commit(&[("a.txt", b"fixed\n")], "fix");
+        let git = GitRepo::open(t.path()).unwrap();
+        let limit = HistoryLimit {
+            max_commits: Some(1),
+            since: None,
+        };
+        let files = git
+            .history_file_contents(64, 1_048_576, 64 * 1_048_576, None, None, &limit)
+            .unwrap();
+        assert!(
+            files
+                .iter()
+                .all(|f| !f.content.as_deref().unwrap_or("").contains("<<<<<<<")),
+            "冲突 blob 属窗口外（父树已存在），不应产出: {:?}",
+            files
+                .iter()
+                .map(|f| (&f.path, &f.content))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            files
+                .iter()
+                .any(|f| f.path == "a.txt" && f.content.as_deref() == Some("fixed\n")),
+            "窗口内引入的修复版 blob 仍在"
+        );
     }
 
     /// 规模档位边界：`MEDIUM/LARGE/HUGE` 为闭区间下界，其前一值为上一档。

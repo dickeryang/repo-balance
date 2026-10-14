@@ -26,6 +26,9 @@ pub enum DataSlice {
     ///
     /// 仅在接入离线漏洞库时才有检查器请求该切片。
     DependencyFileContents,
+    /// 历史文件内容切片：历史 blob 去重后的文本内容（供历史口径的内容检查，
+    /// 如冲突标记残留）。受单文件上限与总预算约束，声明时才采集。
+    HistoryFileContents,
     /// 文件内容切片，`pattern` 限定范围（如 `*.rs`；`all` 表示全部文件）。
     FileContents {
         /// 限定文件范围的模式。

@@ -145,6 +145,9 @@ pub async fn start_scan(
             if enabled("secrets") {
                 let _ = registry.register(Box::new(rb_core::checker::SecretsChecker));
             }
+            if enabled("conflict-markers") {
+                let _ = registry.register(Box::new(rb_core::checker::ConflictMarkersChecker));
+            }
             if enabled("zombie-branches") {
                 let _ = registry.register(Box::new(rb_core::checker::ZombieBranchesChecker));
             }
@@ -829,6 +832,7 @@ mod tests {
             },
             started_at: 1,
             duration_ms: 2,
+            checker_timings: Vec::new(),
             engine_version: "0.1.0".into(),
         });
         report.scope_note = scope_note_of(&ScanConfigDto {
@@ -856,6 +860,7 @@ mod tests {
             },
             started_at: 1,
             duration_ms: 2,
+            checker_timings: Vec::new(),
             engine_version: "0.1.0".into(),
         });
         report.scope_note = scope_note_of(&ScanConfigDto {

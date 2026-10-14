@@ -7,7 +7,7 @@ use crate::checker::{merge_plans, CheckerRegistry, DataSlice, ScanConfig, ScanCo
 use crate::git::{GitRepo, HistoryLimit};
 use crate::ignore::IgnoreRule;
 use crate::model::finding::{Category, Finding, Severity};
-use crate::model::report::{ScanReport, Scores};
+use crate::model::report::{CheckerTiming, ScanReport, Scores};
 use crate::Result;
 
 /// 历史对象遍历的默认批次大小。
@@ -28,6 +28,13 @@ const DEP_FILE_PER_FILE_CAP: u64 = 8 * 1_048_576;
 
 /// 依赖文件读取总预算（64 MiB）：依赖文件数量有限，按仓库数级给足。
 const DEP_FILE_TOTAL_BUDGET: u64 = 64 * 1_048_576;
+
+/// 历史文件内容切片单文件读取上限（1 MiB）：与工作区内容切片口径一致。
+const HISTORY_FILE_CONTENT_PER_FILE_CAP: u64 = 1_048_576;
+
+/// 历史文件内容切片总预算（64 MiB）：与依赖切片对齐；历史 blob 去重后
+/// 实际读取量通常远小于预算，超预算部分仅采元数据（结论如实收窄）。
+const HISTORY_FILE_CONTENT_TOTAL_BUDGET: u64 = 64 * 1_048_576;
 
 /// 扫描进度事件载荷：引擎在各阶段边界经回调上报给编排层。
 ///
@@ -155,6 +162,37 @@ pub fn scan_with_progress(
                     .collect();
                 ctx.insert_slice(slice.clone(), SliceData::FullHistory(blobs));
             }
+            DataSlice::HistoryFileContents => {
+                let history_cb = on_progress.map(|cb| {
+                    |done: usize, total: usize| {
+                        cb(ScanProgress {
+                            stage: "history",
+                            done,
+                            total,
+                            checker_id: "",
+                            finding_count: None,
+                        })
+                    }
+                });
+                // 与 FullHistory 共用大仓库性能闸门（提交数上限 / 时间窗）。
+                let limit = HistoryLimit {
+                    max_commits: config.max_commits,
+                    since: config.history_since,
+                };
+                let files = repo.history_file_contents(
+                    DEFAULT_BATCH_SIZE,
+                    HISTORY_FILE_CONTENT_PER_FILE_CAP,
+                    HISTORY_FILE_CONTENT_TOTAL_BUDGET,
+                    cancel_flag,
+                    history_cb.as_ref().map(|c| c as &dyn Fn(usize, usize)),
+                    &limit,
+                )?;
+                let files: Vec<_> = files
+                    .into_iter()
+                    .filter(|f| !ignore.is_ignored(&f.path))
+                    .collect();
+                ctx.insert_slice(slice.clone(), SliceData::HistoryFileContents(files));
+            }
             DataSlice::BranchGraph => {
                 let branches = repo.branch_graph()?;
                 ctx.insert_slice(slice.clone(), SliceData::BranchGraph(branches));
@@ -186,6 +224,7 @@ pub fn scan_with_progress(
     let total_checkers = registry.list().len();
     report_progress("check", 0, total_checkers);
     let mut findings = Vec::new();
+    let mut checker_timings = Vec::with_capacity(total_checkers);
     for (i, checker) in registry.list().iter().enumerate() {
         if let Some(cb) = on_progress {
             cb(ScanProgress {
@@ -197,7 +236,12 @@ pub fn scan_with_progress(
             });
         }
         let before = findings.len();
+        let check_started = Instant::now();
         findings.extend(checker.check(&ctx));
+        checker_timings.push(CheckerTiming {
+            checker_id: checker.id().to_owned(),
+            duration_ms: check_started.elapsed().as_millis() as u64,
+        });
         if let Some(cb) = on_progress {
             cb(ScanProgress {
                 stage: "check",
@@ -219,6 +263,7 @@ pub fn scan_with_progress(
         scores,
         started_at,
         duration_ms: start.elapsed().as_millis() as u64,
+        checker_timings,
         engine_version: env!("CARGO_PKG_VERSION").to_owned(),
     };
     report_progress("done", 1, 1);
@@ -523,6 +568,49 @@ mod tests {
         assert_eq!(report.findings.len(), 1, "仅 .txt 命中模式采集");
         assert!(report.findings[0].id.contains("a.txt"));
         assert_eq!(report.findings[0].evidence, "aaa", "切片携带文本内容");
+    }
+
+    /// 耗时采集：check 阶段按注册顺序产出各检查器耗时，且计入报告总时长。
+    #[test]
+    fn 耗时_按注册顺序产出各检查器耗时() {
+        struct Probe(&'static str);
+        impl Checker for Probe {
+            fn id(&self) -> &'static str {
+                self.0
+            }
+            fn category(&self) -> Category {
+                Category::Structure
+            }
+            fn plan(&self, _ctx: &ScanContext) -> ScanPlan {
+                ScanPlan::default()
+            }
+            fn check(&self, _ctx: &ScanContext) -> Vec<Finding> {
+                Vec::new()
+            }
+        }
+        let mut t = TestRepo::init();
+        t.commit(&[("a.txt", b"hi")], "init");
+        let mut registry = CheckerRegistry::new();
+        registry
+            .register(Box::new(Probe("timing-probe-a")))
+            .unwrap();
+        registry
+            .register(Box::new(Probe("timing-probe-b")))
+            .unwrap();
+        let report = scan(t.path(), &registry).unwrap();
+        let ids: Vec<&str> = report
+            .checker_timings
+            .iter()
+            .map(|t| t.checker_id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["timing-probe-a", "timing-probe-b"], "按注册顺序");
+        let sum: u64 = report.checker_timings.iter().map(|t| t.duration_ms).sum();
+        assert!(
+            sum <= report.duration_ms,
+            "check 阶段耗时之和不应超过报告总时长（{} > {}）",
+            sum,
+            report.duration_ms
+        );
     }
 
     /// 依赖切片过滤忽略目录：node_modules 内嵌套清单不产出结论（默认忽略）。

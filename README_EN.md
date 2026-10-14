@@ -271,7 +271,8 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 
 ### Shipped in the current version (v0.1.x)
 
-- [x] **All five checkers live** — large files (structure), secrets (security), zombie branches (branches), commit habits (history), dependency health (deps): every dimension produces real findings
+- [x] **All six checkers live** — large files (structure), secrets (security), zombie branches (branches), commit habits (history), dependency health (deps), merge-conflict leftovers (structure): every dimension produces real findings
+- [x] **Merge-conflict leftovers checker** — detects leftover `<<<<<<<` / `=======` / `>>>>>>>` markers in both the worktree and commit history; three false-positive guards (a full marker triple is required, a stop-word allowlist for doc examples, shared ignore rules), and history findings say "usually no action needed" rather than pushing a history rewrite
 - [x] **Secrets checker** — private-key headers / AWS access key / GitHub & GitLab tokens / `.env` assignments / high-entropy secrets, dual-channel (regex + Shannon entropy), evidence masked at construction, stop-word allowlist for sample values
 - [x] **Zombie branches checker** — merged but undeleted, inactive beyond N days (90 default, configurable), no upstream tracking
 - [x] **Commit habits checker** — oversized commits (>50 files Warning / >200 Critical), low-quality message ratio, late-night ratio (per commit timezone)

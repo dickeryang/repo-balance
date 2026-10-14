@@ -36,6 +36,22 @@ pub struct BlobMeta {
     pub first_commit: CommitSummary,
 }
 
+/// 历史 blob 内容视图：路径 + 字节大小 + 首次引入提交 + 文本内容（可选）。
+///
+/// 内容读取受编排层预算约束（单文件上限 + 全仓总预算），超限或二进制
+/// 文件 `content` 为 `None`；同一 (路径, blob) 去重后仅保留首次引入提交。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryFileContent {
+    /// 相对仓库根的路径（统一正斜杠）。
+    pub path: String,
+    /// blob 字节大小（取自对象头）。
+    pub size: u64,
+    /// 该 blob 首次引入时的提交摘要。
+    pub first_commit: CommitSummary,
+    /// 文本内容；超预算 / 二进制 / 读取失败时为 `None`。
+    pub content: Option<String>,
+}
+
 /// 本地分支拓扑元数据（`git2` 类型不外泄，见 [`crate::git`]）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BranchMeta {

@@ -364,4 +364,24 @@ mod tests {
         let back = serde_json::to_string(&a).unwrap();
         assert!(back.contains("\"eco\":\"cargo\""), "{back}");
     }
+
+    /// 展示名映射全覆盖且与封闭集一一对应（UI 生态列的取值契约）。
+    #[test]
+    fn 生态展示名_封闭集全覆盖() {
+        let expected = [
+            (VulnEcosystem::Cargo, "Rust"),
+            (VulnEcosystem::Npm, "npm"),
+            (VulnEcosystem::Pypi, "PyPI"),
+            (VulnEcosystem::Go, "Go"),
+            (VulnEcosystem::Maven, "Maven"),
+        ];
+        assert_eq!(
+            expected.len(),
+            VulnEcosystem::ALL.len(),
+            "封闭集新增变体时本表必须同步"
+        );
+        for (eco, name) in expected {
+            assert_eq!(eco.label(), name, "{eco:?}");
+        }
+    }
 }

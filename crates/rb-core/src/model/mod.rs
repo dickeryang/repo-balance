@@ -88,6 +88,7 @@ mod tests {
             },
             started_at: 1,
             duration_ms: 2,
+            checker_timings: Vec::new(),
             engine_version: "0.1.0".into(),
         };
         let json = serde_json::to_string(&r).unwrap();

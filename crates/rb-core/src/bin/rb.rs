@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use rb_core::checker::{
-    BigFilesChecker, CheckerRegistry, CommitHabitsChecker, DepsHealthChecker, SecretsChecker,
-    ZombieBranchesChecker,
+    BigFilesChecker, CheckerRegistry, CommitHabitsChecker, ConflictMarkersChecker,
+    DepsHealthChecker, SecretsChecker, ZombieBranchesChecker,
 };
 use rb_core::engine::scan::scan_with_progress;
 use rb_core::git::GitRepo;
@@ -133,6 +133,7 @@ fn run_scan(
     let mut registry = CheckerRegistry::new();
     registry.register(Box::new(BigFilesChecker))?;
     registry.register(Box::new(SecretsChecker))?;
+    registry.register(Box::new(ConflictMarkersChecker))?;
     registry.register(Box::new(ZombieBranchesChecker))?;
     registry.register(Box::new(CommitHabitsChecker))?;
     registry.register(Box::new(DepsHealthChecker))?;
@@ -342,8 +343,20 @@ fn print_json(
         Some(s) => format!("\"{}\"", json_escape(s)),
         None => "null".to_owned(),
     };
+    // 各检查器 check 阶段耗时（camelCase 键对齐 totalScore/findingCount 风格）。
+    let timings_json: Vec<String> = report
+        .checker_timings
+        .iter()
+        .map(|t| {
+            format!(
+                r#"{{"checkerId":"{}","durationMs":{}}}"#,
+                json_escape(&t.checker_id),
+                t.duration_ms
+            )
+        })
+        .collect();
     println!(
-        r#"{{"repo":"{}","totalScore":{},"findingCount":{},"critical":{},"warning":{},"info":{},"scope":{},"findings":[{}]}}"#,
+        r#"{{"repo":"{}","totalScore":{},"findingCount":{},"critical":{},"warning":{},"info":{},"scope":{},"checkerTimings":[{}],"findings":[{}]}}"#,
         json_escape(&snap.path),
         total_score,
         report.findings.len(),
@@ -351,6 +364,7 @@ fn print_json(
         warning,
         info,
         scope_json,
+        timings_json.join(","),
         findings_json.join(",")
     );
 }

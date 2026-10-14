@@ -37,6 +37,18 @@ impl Scores {
     }
 }
 
+/// 单个检查器 `check` 阶段的执行耗时。
+///
+/// 口径：仅统计纯计算阶段（`Checker::check`）；切片采集与评分耗时不含在内，
+/// 因此各条之和通常小于报告级 `duration_ms`。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckerTiming {
+    /// 检查器 id（与 `Checker::id()` 一致，如 `conflict-markers`）。
+    pub checker_id: String,
+    /// 执行耗时（毫秒，向下取整，亚毫秒计 0）。
+    pub duration_ms: u64,
+}
+
 /// 一次扫描的完整报告。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanReport {
@@ -50,6 +62,8 @@ pub struct ScanReport {
     pub started_at: i64,
     /// 扫描耗时（毫秒）。
     pub duration_ms: u64,
+    /// 各检查器 `check` 阶段执行耗时（按注册顺序）。
+    pub checker_timings: Vec<CheckerTiming>,
     /// 引擎版本。
     pub engine_version: String,
 }

@@ -108,14 +108,61 @@ else
   info "已写入 .env 并提交（敏感信息演示形态）"
 fi
 
-# 步骤 4：最终形态报告
+# 步骤 5：冲突标记残留 —— 三种形态（合并冲突残留检查演示）
+# 5a. conflict-left.md：当前工作区仍带完整冲突三元组（Warning 演示形态）
+CONFLICT_LEFT='<<<<<<< HEAD
+本地改动示例
+=======
+对方改动示例
+>>>>>>> feature/login
+正常内容行'
+if git cat-file -e HEAD:conflict-left.md 2>/dev/null; then
+  info "跳过：conflict-left.md 已在 main 历史"
+elif [ -f conflict-left.md ]; then
+  die "conflict-left.md 在工作区但未提交，形态不符，请人工确认"
+else
+  printf '%s\n' "$CONFLICT_LEFT" > conflict-left.md
+  git add conflict-left.md
+  git commit -q -m "chore: add unresolved conflict file"
+  info "已写入 conflict-left.md 并提交（工作区冲突残留演示形态）"
+fi
+
+# 5b. conflict-history.md：先提交冲突标记、随后提交修复版（仅历史残留，Info 演示形态）
+if git cat-file -e HEAD:conflict-history.md 2>/dev/null; then
+  info "跳过：conflict-history.md 已在 main 历史"
+elif [ -f conflict-history.md ]; then
+  die "conflict-history.md 在工作区但未提交，形态不符，请人工确认"
+else
+  printf '<<<<<<< HEAD\n旧实现\n=======\n新实现\n>>>>>>> feature/rewrite\n' > conflict-history.md
+  git add conflict-history.md
+  git commit -q -m "wip: resolve later"
+  printf 'function resolved() {\n  return 42;\n}\n' > conflict-history.md
+  git add conflict-history.md
+  git commit -q -m "fix: resolve conflict in history file"
+  info "已生成 conflict-history.md（先冲突后修复，历史残留演示形态）"
+fi
+
+# 5c. docs/tutorial-conflict.md：文档示例（标签为 example → 停用词白名单，不产出结论）
+if git cat-file -e HEAD:docs/tutorial-conflict.md 2>/dev/null; then
+  info "跳过：docs/tutorial-conflict.md 已在 main 历史"
+elif [ -f docs/tutorial-conflict.md ]; then
+  info "跳过：docs/tutorial-conflict.md 已存在于工作区"
+else
+  mkdir -p docs
+  printf '教程示例（演示停用词白名单，不应被判为残留）：\n<<<<<<< example\n示例分支改动\n=======\n另一示例改动\n>>>>>>> sample\n' > docs/tutorial-conflict.md
+  git add docs/tutorial-conflict.md
+  git commit -q -m "docs: add conflict marker tutorial"
+  info "已生成 docs/tutorial-conflict.md（文档示例白名单演示形态）"
+fi
+
+# 步骤 6：最终形态报告
 info "===== 形态报告 ====="
 info "分支: $(git branch --format='%(refname:short)' | tr '\n' ' ')"
 info "main 提交链:"
 git log --oneline main | sed 's/^/  /'
 info "old-branch 相对 main 的未合并提交:"
 git log --oneline main..old-branch | sed 's/^/  /' || true
-for f in leaked.txt big.bin .env; do
+for f in leaked.txt big.bin .env conflict-left.md conflict-history.md docs/tutorial-conflict.md; do
   if git cat-file -e "main:$f" 2>/dev/null; then
     info "$f: 已提交入 main 历史 ✓"
   else

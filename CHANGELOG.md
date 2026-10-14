@@ -21,7 +21,12 @@
 - **忽略规则内置默认项**：`target/`、`node_modules/` 等构建产物目录默认忽略（可用 `!` 否定），依赖切片同步过滤忽略目录
 - **英文版文档**：`README_EN.md`、`CONTRIBUTING_EN.md`、`SECURITY_EN.md`、`CODE_OF_CONDUCT_EN.md`，与中文版双向互链
 - **治理文件**：`SUPPORT.md`（含未签名安装 / 误报处理 / 评分口径等 FAQ）、`GOVERNANCE.md`（维护模型、角色演进、决策流程与项目底线）、`AUTHORS.md`、`CITATION.cff`（通过 CFF 1.2.0 官方 schema 字段校验）；`CONTRIBUTING.md`、`CHANGELOG.md`、issue/PR 模板、`.editorconfig` / `.gitattributes`
-- **演示能力**：`scripts/build-demo-fixture.sh` 支持在全新克隆上自动初始化演示仓库（幂等，产出四类合成问题数据）
+- **演示能力**：`scripts/build-demo-fixture.sh` 支持在全新克隆上自动初始化演示仓库（幂等，产出五类合成问题数据，新增未解决冲突标记样例）
+- **合并冲突残留检查器**（Structure 维度）：检出工作区与历史提交中残留的 `<<<<<<<` / `=======` / `>>>>>>>` 冲突标记
+  - 三重防误报：完整三元组按行序齐备才计数（单独 `=======` 永不命中）、文档示例停用词白名单、复用 `.repobalance-ignore`
+  - 历史口径仅说明「通常无需处理」并给出可选的 `git filter-repo` 命令，不强制重写历史
+  - 新增 `HistoryFileContents` 切片与历史文件内容采集（受预算约束）
+- **检查器耗时统计**：`ScanReport` 新增 `checkerTimings`（各检查器 `check` 阶段毫秒耗时，按注册顺序）
 - **大仓库性能闸门**：历史遍历支持「最多 N 个提交」与「最近 N 天」两个限制条件
   - CLI 新增 `--max-commits N` / `--since-days N`（两者可叠加取交集）
   - GUI 配置面板新增「历史范围」分组（留空 = 不限）

@@ -163,9 +163,10 @@ impl ScanConfigDto {
 }
 
 /// 全部内置检查器 id（与 rb-core 注册顺序一致）。
-pub const ALL_CHECKER_IDS: [&str; 5] = [
+pub const ALL_CHECKER_IDS: [&str; 6] = [
     "big-files",
     "secrets",
+    "conflict-markers",
     "zombie-branches",
     "commit-habits",
     "deps-health",
@@ -341,6 +342,7 @@ mod tests {
             },
             started_at: 1,
             duration_ms: 100,
+            checker_timings: Vec::new(),
             engine_version: "0.1.0".into(),
         };
         let dto = ScanReportDto::from(report);
@@ -376,6 +378,7 @@ mod tests {
             },
             started_at: 1,
             duration_ms: 100,
+            checker_timings: Vec::new(),
             engine_version: "0.1.0".into(),
         };
         let dto = ScanReportDto::from(report);
@@ -389,7 +392,7 @@ mod tests {
         assert_eq!(dto.scores.structure, Some(80));
     }
 
-    /// ScanConfigDto 默认启用全部五个检查器、僵尸分支阈值 90 天、历史不限。
+    /// ScanConfigDto 默认启用全部六个检查器、僵尸分支阈值 90 天、历史不限。
     #[test]
     fn scan_config_dto_默认启用全部检查器() {
         let cfg = ScanConfigDto::default();

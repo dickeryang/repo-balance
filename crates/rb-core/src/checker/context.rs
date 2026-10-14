@@ -6,7 +6,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::checker::plan::DataSlice;
-use crate::model::slice_meta::{BlobMeta, BranchMeta, DepFileContent, DepFileMeta, FileContent};
+use crate::model::slice_meta::{
+    BlobMeta, BranchMeta, DepFileContent, DepFileMeta, FileContent, HistoryFileContent,
+};
 use crate::model::snapshot::RepoSnapshot;
 use crate::model::vuln::VulnIndex;
 
@@ -77,6 +79,8 @@ pub enum SliceData {
     DependencyFiles(Vec<DepFileMeta>),
     /// 依赖清单/锁定文件的内容视图（DependencyFileContents 请求的采集结果）。
     DependencyFileContents(Vec<DepFileContent>),
+    /// 历史文件内容切片的采集结果（HistoryFileContents 请求的采集结果）。
+    HistoryFileContents(Vec<HistoryFileContent>),
 }
 
 /// Checker 在 plan / check 两阶段共享的只读上下文（spec 5.3）。

@@ -103,6 +103,7 @@ export interface ScaleEstimate {
 export const ALL_CHECKER_IDS = [
   'big-files',
   'secrets',
+  'conflict-markers',
   'zombie-branches',
   'commit-habits',
   'deps-health',
