@@ -5,8 +5,10 @@
 
 use serde::{Deserialize, Serialize};
 
+use rb_core::checker::ScanConfig;
 use rb_core::model::finding::{Category, Finding, Severity};
 use rb_core::model::report::{ScanReport, Scores};
+use rb_core::model::scale::{ScaleEstimate, ScaleLevel};
 use rb_core::model::snapshot::{CommitSummary, RepoSnapshot};
 
 /// 仓库快照 DTO（camelCase）。
@@ -66,18 +68,7 @@ pub struct RadarPointDto {
     pub finding_count: usize,
 }
 
-/// 扫描进度事件 DTO（stub 阶段不产出，待 D3-2 落地后启用）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
-pub struct ProgressEventDto {
-    pub stage: String,
-    pub checker_id: String,
-    pub done: usize,
-    pub total: usize,
-}
-
-/// 扫描配置 DTO（camelCase）：用户可调整阈值与启用检查器集合。
+/// 扫描配置 DTO（camelCase）：用户可调整阈值、历史范围与启用检查器集合。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanConfigDto {
@@ -88,6 +79,48 @@ pub struct ScanConfigDto {
     pub zombie_branch_days: u64,
     /// 启用的检查器 id 列表（空表示全部启用）。
     pub enabled_checkers: Vec<String>,
+    /// 历史遍历提交数上限（保留最新的若干个）；`null` 表示不限。
+    #[serde(default)]
+    pub max_commits: Option<usize>,
+    /// 历史时间窗（天，仅遍历最近 N 天的提交）；`null` 表示不限。
+    ///
+    /// DTO 用「天数」而非 Unix 秒：GUI 更易理解，秒级换算在命令层完成。
+    #[serde(default)]
+    pub since_days: Option<u64>,
+}
+
+/// 规模档位 DTO（与 [`ScaleLevel`] 一一对应，序列化值 snake_case）。
+pub type ScaleLevelDto = ScaleLevel;
+
+/// 扫描规模预估 DTO（camelCase 镜像 [`ScaleEstimate`]）。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScaleEstimateDto {
+    pub commit_count: usize,
+    pub file_count: usize,
+    pub total_bytes: u64,
+    pub avg_objects_per_commit: f64,
+    pub estimated_objects: u64,
+    pub estimated_seconds: u32,
+    pub level: ScaleLevelDto,
+    pub suggested_max_commits: Option<usize>,
+    pub suggested_since_days: Option<u64>,
+}
+
+impl From<ScaleEstimate> for ScaleEstimateDto {
+    fn from(e: ScaleEstimate) -> Self {
+        Self {
+            commit_count: e.commit_count,
+            file_count: e.file_count,
+            total_bytes: e.total_bytes,
+            avg_objects_per_commit: e.avg_objects_per_commit,
+            estimated_objects: e.estimated_objects,
+            estimated_seconds: e.estimated_seconds,
+            level: e.level,
+            suggested_max_commits: e.suggested_max_commits,
+            suggested_since_days: e.suggested_since_days,
+        }
+    }
 }
 
 /// [`ScanConfigDto::zombie_branch_days`] 的 serde 缺省值（90 天）。
@@ -101,6 +134,30 @@ impl Default for ScanConfigDto {
             big_file_threshold: 1_048_576,
             zombie_branch_days: default_zombie_branch_days(),
             enabled_checkers: ALL_CHECKER_IDS.iter().map(|s| s.to_string()).collect(),
+            max_commits: None,
+            since_days: None,
+        }
+    }
+}
+
+/// 一天的秒数（`since_days` → `history_since` 换算用）。
+const SECS_PER_DAY: i64 = 86_400;
+
+impl ScanConfigDto {
+    /// 转换为 rb-core 配置：`since_days` 按 `now`（Unix 秒）换算为绝对时间戳。
+    ///
+    /// 0 值按「不限」处理——GUI 输入框清空或误填 0 不应导致扫描出空历史。
+    pub fn to_core_config(&self, now: i64) -> ScanConfig {
+        ScanConfig {
+            big_file_threshold: self.big_file_threshold,
+            zombie_branch_days: self.zombie_branch_days,
+            max_commits: self.max_commits.filter(|n| *n > 0),
+            // 漏洞库由壳层在命令层注入（见 commands.rs），DTO 不参与传输。
+            vuln_index: None,
+            history_since: self
+                .since_days
+                .filter(|d| *d > 0)
+                .map(|d| now - d as i64 * SECS_PER_DAY),
         }
     }
 }
@@ -125,8 +182,14 @@ pub struct ScanReportDto {
     pub started_at: i64,
     pub duration_ms: u64,
     pub engine_version: String,
-    /// stub 阶段恒为 false；待 D5-1 落地后支持取消扫描的 PartialReport。
+    /// 取消的扫描推送 `cancelled=true` 的部分报告，前端照常渲染「部分结果」。
     pub cancelled: bool,
+    /// 历史范围受限时的告知文案；全量扫描为 `None`。
+    ///
+    /// 由命令层按当次扫描配置生成，报告页与导出（MD/HTML）均需如实标注，
+    /// 避免「受限结论」被误读为「全量结论」。
+    #[serde(default)]
+    pub scope_note: Option<String>,
 }
 
 // ===== From 转换（rb-core 模型 → DTO）=====
@@ -226,6 +289,7 @@ impl From<ScanReport> for ScanReportDto {
             duration_ms: r.duration_ms,
             engine_version: r.engine_version,
             cancelled: false,
+            scope_note: None,
         }
     }
 }
@@ -325,13 +389,15 @@ mod tests {
         assert_eq!(dto.scores.structure, Some(80));
     }
 
-    /// ScanConfigDto 默认启用全部五个检查器，僵尸分支阈值 90 天。
+    /// ScanConfigDto 默认启用全部五个检查器、僵尸分支阈值 90 天、历史不限。
     #[test]
     fn scan_config_dto_默认启用全部检查器() {
         let cfg = ScanConfigDto::default();
         assert_eq!(cfg.big_file_threshold, 1_048_576);
         assert_eq!(cfg.zombie_branch_days, 90);
         assert_eq!(cfg.enabled_checkers.len(), ALL_CHECKER_IDS.len());
+        assert_eq!(cfg.max_commits, None, "默认不限历史提交数");
+        assert_eq!(cfg.since_days, None, "默认不限历史时间窗");
         for id in ALL_CHECKER_IDS {
             assert!(
                 cfg.enabled_checkers.contains(&id.to_owned()),
@@ -352,15 +418,81 @@ mod tests {
         assert!(json.contains("\"zombieBranchDays\""), "{json}");
     }
 
+    /// 历史范围字段为 camelCase（maxCommits / sinceDays）。
     #[test]
-    fn progress_event_dto_字段为_camel_case() {
-        let evt = ProgressEventDto {
-            stage: "check".into(),
-            checker_id: "big-files".into(),
-            done: 1,
-            total: 3,
+    fn scan_config_dto_历史范围字段为_camel_case() {
+        let cfg = ScanConfigDto {
+            max_commits: Some(500),
+            since_days: Some(365),
+            ..Default::default()
         };
-        let json = serde_json::to_string(&evt).unwrap();
-        assert!(json.contains("\"checkerId\""), "{json}");
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(json.contains("\"maxCommits\":500"), "{json}");
+        assert!(json.contains("\"sinceDays\":365"), "{json}");
+    }
+
+    /// 旧配置（无历史范围字段）反序列化回退为不限。
+    #[test]
+    fn scan_config_dto_旧配置缺省历史范围() {
+        let cfg: ScanConfigDto =
+            serde_json::from_str(r#"{"bigFileThreshold":1,"enabledCheckers":[]}"#).unwrap();
+        assert_eq!(cfg.max_commits, None);
+        assert_eq!(cfg.since_days, None);
+    }
+
+    /// `since_days` 按 now 换算为绝对时间戳；0 与 None 均为「不限」。
+    #[test]
+    fn to_core_config_时间窗换算与零值归一化() {
+        let base = ScanConfigDto::default();
+        assert_eq!(base.to_core_config(1_700_000_000).history_since, None);
+        assert_eq!(base.to_core_config(1_700_000_000).max_commits, None);
+
+        let limited = ScanConfigDto {
+            max_commits: Some(500),
+            since_days: Some(10),
+            ..Default::default()
+        };
+        let core = limited.to_core_config(1_700_000_000);
+        assert_eq!(core.max_commits, Some(500));
+        assert_eq!(core.history_since, Some(1_700_000_000 - 10 * 86_400));
+
+        let zero = ScanConfigDto {
+            max_commits: Some(0),
+            since_days: Some(0),
+            ..Default::default()
+        };
+        let core = zero.to_core_config(1_700_000_000);
+        assert_eq!(core.max_commits, None, "0 按不限处理");
+        assert_eq!(core.history_since, None, "0 按不限处理");
+    }
+
+    /// ScaleEstimateDto 字段为 camelCase，档位为 snake_case。
+    #[test]
+    fn scale_estimate_dto_字段为_camel_case() {
+        let est = ScaleEstimate {
+            commit_count: 12,
+            file_count: 3,
+            total_bytes: 42,
+            avg_objects_per_commit: 2.5,
+            estimated_objects: 30,
+            estimated_seconds: 2,
+            level: ScaleLevel::Small,
+            suggested_max_commits: None,
+            suggested_since_days: None,
+        };
+        let json = serde_json::to_string(&ScaleEstimateDto::from(est)).unwrap();
+        for key in [
+            "\"commitCount\"",
+            "\"fileCount\"",
+            "\"totalBytes\"",
+            "\"avgObjectsPerCommit\"",
+            "\"estimatedObjects\"",
+            "\"estimatedSeconds\"",
+            "\"suggestedMaxCommits\"",
+            "\"suggestedSinceDays\"",
+            "\"level\":\"small\"",
+        ] {
+            assert!(json.contains(key), "缺少字段 {key}: {json}");
+        }
     }
 }

@@ -5,7 +5,7 @@
 ## CLI 用法
 
 ```bash
-rb scan <path> [--ci|--json|--quiet]
+rb scan <path> [--ci|--json|--quiet] [--max-commits N] [--since-days N] [--vuln-db FILE]
 ```
 
 ### 选项
@@ -15,6 +15,41 @@ rb scan <path> [--ci|--json|--quiet]
 | `--ci` | CI 模式：简洁输出，适合日志展示 |
 | `--json` | JSON 模式：单行 JSON 输出，适合机器解析 |
 | `--quiet` | 静默模式：不输出详情，仅按退出码反映结果 |
+| `--max-commits N` | 只遍历最新 N 个提交（N > 0），大仓库提速 |
+| `--since-days N` | 只遍历最近 N 天的提交（N > 0），大仓库提速 |
+| `--vuln-db FILE` | 离线漏洞库索引（JSONL）；不指定则不做依赖漏洞匹配 |
+
+`--max-commits` 与 `--since-days` 可叠加，取交集。历史遍历与提交数近似线性，
+超大仓库建议限制范围以控制流水线时长：
+
+```bash
+# 只看最近半年的历史（PR 流水线常用）
+rb scan . --ci --since-days 180
+
+# 只看最近 2000 个提交
+rb scan . --ci --max-commits 2000
+```
+
+> **受限扫描会如实标注**：启用任一限制后，`--ci` 输出会多一行「范围」说明，
+> `--json` 输出会多一个 `scope` 字段（全量扫描为 `null`），导出的报告同样带该说明。
+> 请勿把受限结论当作全量结论解读。
+
+## 依赖漏洞检测（离线漏洞库）
+
+漏洞库是**离线索引文件**，不在扫描时联网。CI 用法：
+
+```bash
+# 1) 生成索引（需网络，开发者/运维手工执行一次，产物可提交或缓存）
+bash scripts/build-vuln-index.sh ./vuln-index.jsonl
+
+# 2) 扫描时指定
+rb scan . --ci --vuln-db ./vuln-index.jsonl
+```
+
+- 支持的依赖文件：`Cargo.lock` / `Cargo.toml` / `package-lock.json` / `package.json` /
+  `yarn.lock` / `go.mod` / `requirements.txt` / `pom.xml`；
+- 未指定 `--vuln-db` 时依赖维度仅做结构检查，**行为与不接入漏洞库时完全一致**（不报错、不扣分）；
+- 建议在 CI 中缓存索引文件并定期重新生成（漏洞库会持续更新）。
 
 ### 退出码
 
@@ -91,7 +126,7 @@ rb scan . --json
 ```
 
 ```json
-{"repo":"/path/to/repo","totalScore":85,"findingCount":3,"critical":1,"warning":2,"info":0,"findings":[{"id":"big-files.history:a.bin","severity":"critical","title":"历史中存在大文件..."}]}
+{"repo":"/path/to/repo","totalScore":85,"findingCount":3,"critical":1,"warning":2,"info":0,"scope":null,"findings":[{"id":"big-files.history:a.bin","severity":"critical","title":"历史中存在大文件..."}]}
 ```
 
 可在 CI 中解析 JSON 后自定义质量门禁（如总分 < 70 则失败）。

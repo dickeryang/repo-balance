@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { RepoSnapshot, ScanReport, ScanConfig } from '../types/models'
+import type { RepoSnapshot, ScanReport, ScanConfig, ScaleEstimate } from '../types/models'
 
 export async function selectDirectory(): Promise<string | null> {
   return invoke<string | null>('select_directory')
@@ -7,6 +7,10 @@ export async function selectDirectory(): Promise<string | null> {
 
 export async function repoInfo(path: string): Promise<RepoSnapshot> {
   return invoke<RepoSnapshot>('repo_info', { path })
+}
+
+export async function scanEstimate(path: string): Promise<ScaleEstimate> {
+  return invoke<ScaleEstimate>('scan_estimate', { path })
 }
 
 export async function startScan(path: string, config: ScanConfig): Promise<void> {
@@ -19,4 +23,24 @@ export async function cancelScan(): Promise<void> {
 
 export async function exportReport(format: string, report: ScanReport): Promise<string | null> {
   return invoke<string | null>('export_report', { format, report })
+}
+
+/** 读取扫描历史（应用数据目录 JSON 文件的原始内容；不存在时为 `[]`）。 */
+export async function loadScanHistory(): Promise<string> {
+  return invoke<string>('load_scan_history')
+}
+
+/** 覆盖写入扫描历史（JSON 数组字符串）。 */
+export async function saveScanHistory(data: string): Promise<void> {
+  return invoke<void>('save_scan_history', { data })
+}
+
+/** 导入扫描历史：弹文件对话框，返回文件内容（取消时为 null）。 */
+export async function importScanHistory(): Promise<string | null> {
+  return invoke<string | null>('import_scan_history')
+}
+
+/** 导出扫描历史：弹保存对话框并写盘，返回实际路径（取消时为 null）。 */
+export async function exportScanHistory(data: string): Promise<string | null> {
+  return invoke<string | null>('export_scan_history', { data })
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import en from 'element-plus/es/locale/lang/en'
 import { useScanStore } from './stores/scan'
@@ -13,6 +13,11 @@ import HistoryView from './views/HistoryView.vue'
 const store = useScanStore()
 const { locale } = useI18n()
 const elLocale = computed(() => (locale.value === 'zh' ? zhCn : en))
+
+// 扫描历史存于应用数据目录文件，启动时异步载入（含旧版 localStorage 一次性迁移）。
+onMounted(() => {
+  void store.initHistory()
+})
 </script>
 
 <template>

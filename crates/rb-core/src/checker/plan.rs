@@ -20,8 +20,12 @@ pub enum DataSlice {
     WorkingTree,
     /// 分支拓扑（含合并可达性信息）。
     BranchGraph,
-    /// 依赖清单文件的解析结果。
+    /// 依赖清单文件的解析结果（路径 + 生态 + 跟踪状态）。
     DependencyFiles,
+    /// 依赖清单/锁定文件的文本内容（供版本解析与漏洞匹配）。
+    ///
+    /// 仅在接入离线漏洞库时才有检查器请求该切片。
+    DependencyFileContents,
     /// 文件内容切片，`pattern` 限定范围（如 `*.rs`；`all` 表示全部文件）。
     FileContents {
         /// 限定文件范围的模式。

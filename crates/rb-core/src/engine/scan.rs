@@ -4,7 +4,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use crate::checker::{merge_plans, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData};
-use crate::git::GitRepo;
+use crate::git::{GitRepo, HistoryLimit};
 use crate::ignore::IgnoreRule;
 use crate::model::finding::{Category, Finding, Severity};
 use crate::model::report::{ScanReport, Scores};
@@ -21,6 +21,13 @@ const FILE_CONTENT_PER_FILE_CAP: u64 = 1_048_576;
 /// 文件内容切片全仓读取总预算（32 MiB）：耗尽后后续文件仅采集元数据，
 /// 防止 pathological 仓库（海量小文件）读爆内存或耗时失控。
 const FILE_CONTENT_TOTAL_BUDGET: u64 = 32 * 1_048_576;
+
+/// 依赖文件单文件读取上限（8 MiB）：锁定文件（尤其 `package-lock.json`、
+/// `yarn.lock`）在大仓库可达数 MiB，口径比普通文件内容切片宽。
+const DEP_FILE_PER_FILE_CAP: u64 = 8 * 1_048_576;
+
+/// 依赖文件读取总预算（64 MiB）：依赖文件数量有限，按仓库数级给足。
+const DEP_FILE_TOTAL_BUDGET: u64 = 64 * 1_048_576;
 
 /// 扫描进度事件载荷：引擎在各阶段边界经回调上报给编排层。
 ///
@@ -131,10 +138,16 @@ pub fn scan_with_progress(
                         })
                     }
                 });
+                // 大仓库性能闸门：把配置里的提交数上限 / 时间窗交给历史采集。
+                let limit = HistoryLimit {
+                    max_commits: config.max_commits,
+                    since: config.history_since,
+                };
                 let blobs = repo.history_blob_metas(
                     DEFAULT_BATCH_SIZE,
                     cancel_flag,
                     history_cb.as_ref().map(|c| c as &dyn Fn(usize, usize)),
+                    &limit,
                 )?;
                 let blobs: Vec<_> = blobs
                     .into_iter()
@@ -145,6 +158,15 @@ pub fn scan_with_progress(
             DataSlice::BranchGraph => {
                 let branches = repo.branch_graph()?;
                 ctx.insert_slice(slice.clone(), SliceData::BranchGraph(branches));
+            }
+            DataSlice::DependencyFileContents => {
+                let files =
+                    repo.dependency_file_contents(DEP_FILE_PER_FILE_CAP, DEP_FILE_TOTAL_BUDGET)?;
+                let files: Vec<_> = files
+                    .into_iter()
+                    .filter(|f| !ignore.is_ignored(&f.path))
+                    .collect();
+                ctx.insert_slice(slice.clone(), SliceData::DependencyFileContents(files));
             }
             DataSlice::DependencyFiles => {
                 let deps = repo.dependency_files()?;
@@ -522,6 +544,100 @@ mod tests {
             report.findings.is_empty(),
             "node_modules 内嵌套清单应被默认忽略: {:?}",
             report.findings.iter().map(|f| &f.id).collect::<Vec<_>>()
+        );
+    }
+
+    /// 大仓库性能闸门：配置的 `max_commits` / `history_since` 经引擎透传到历史采集，
+    /// 限制后「首次引入」提交回退到被保留窗口内的最早提交。
+    #[test]
+    fn 历史限流_配置经引擎透传到历史采集() {
+        struct HistoryProbe;
+        impl Checker for HistoryProbe {
+            fn id(&self) -> &'static str {
+                "history-probe"
+            }
+            fn category(&self) -> Category {
+                Category::History
+            }
+            fn plan(&self, _ctx: &ScanContext) -> ScanPlan {
+                let mut plan = ScanPlan::new();
+                plan.push(DataSlice::FullHistory);
+                plan
+            }
+            fn check(&self, ctx: &ScanContext) -> Vec<Finding> {
+                let Some(SliceData::FullHistory(blobs)) = ctx.slice(&DataSlice::FullHistory) else {
+                    return Vec::new();
+                };
+                blobs
+                    .iter()
+                    .map(|b| Finding {
+                        id: format!("history-probe:{}", b.path),
+                        severity: Severity::Info,
+                        category: Category::History,
+                        title: b.first_commit.summary.clone(),
+                        evidence: String::new(),
+                        suggestion: String::new(),
+                    })
+                    .collect()
+            }
+        }
+
+        let mut t = TestRepo::init();
+        t.commit(&[("a.txt", b"a")], "c1");
+        t.commit(&[("b.txt", b"b")], "c2");
+        let mut registry = CheckerRegistry::new();
+        registry.register(Box::new(HistoryProbe)).unwrap();
+        let title_of = |config: crate::checker::ScanConfig, path: &str| -> String {
+            let report =
+                super::scan_with_progress(t.path(), &registry, None, None, &config).unwrap();
+            report
+                .findings
+                .into_iter()
+                .find(|f| f.id.ends_with(path))
+                .map(|f| f.title)
+                .unwrap_or_default()
+        };
+        assert_eq!(
+            title_of(crate::checker::ScanConfig::default(), "a.txt"),
+            "c1"
+        );
+        assert_eq!(
+            title_of(crate::checker::ScanConfig::default(), "b.txt"),
+            "c2",
+            "全量扫描时 b.txt 由 c2 引入"
+        );
+        assert_eq!(
+            title_of(
+                crate::checker::ScanConfig {
+                    max_commits: Some(1),
+                    ..Default::default()
+                },
+                "a.txt"
+            ),
+            "",
+            "a.txt 在窗口外（父树已存在），不计入结论"
+        );
+        assert_eq!(
+            title_of(
+                crate::checker::ScanConfig {
+                    max_commits: Some(1),
+                    ..Default::default()
+                },
+                "b.txt"
+            ),
+            "c2",
+            "窗口内真正由 c2 引入的 b.txt 仍在"
+        );
+        assert_eq!(
+            title_of(
+                crate::checker::ScanConfig {
+                    history_since: Some(1_700_000_000 + 60),
+                    ..Default::default()
+                },
+                "b.txt"
+            ),
+            "c2",
+            "时间窗排除 c1 后 b.txt 仍由 c2 引入"
         );
     }
 

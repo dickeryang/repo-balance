@@ -15,6 +15,8 @@ pub fn map_error(e: RbError) -> String {
         RbError::Io(_) => "文件系统操作失败，请检查权限与磁盘空间".to_owned(),
         RbError::DuplicateChecker { id } => format!("检查器注册冲突: {id}"),
         RbError::InvalidSlice(_) => "数据切片请求非法".to_owned(),
+        // 不回显原文：其中可能含本机电文路径。
+        RbError::VulnDb(_) => "离线漏洞库索引损坏，请重新生成或删除后重试".to_owned(),
     }
 }
 
@@ -40,5 +42,13 @@ mod tests {
     fn io错误_不泄露路径() {
         let msg = map_error(RbError::Io(std::io::Error::other("access denied: /secret")));
         assert!(!msg.contains("/secret"));
+    }
+
+    /// 漏洞库错误文案不回显路径（内部消息可能含本机绝对路径）。
+    #[test]
+    fn 漏洞库错误_不泄露路径() {
+        let msg = map_error(RbError::VulnDb("第 3 行解析失败: /Users/me/x.jsonl".into()));
+        assert!(!msg.contains("/Users/me"));
+        assert!(msg.contains("漏洞库"));
     }
 }

@@ -22,6 +22,26 @@
 - **英文版文档**：`README_EN.md`、`CONTRIBUTING_EN.md`、`SECURITY_EN.md`、`CODE_OF_CONDUCT_EN.md`，与中文版双向互链
 - **治理文件**：`SUPPORT.md`（含未签名安装 / 误报处理 / 评分口径等 FAQ）、`GOVERNANCE.md`（维护模型、角色演进、决策流程与项目底线）、`AUTHORS.md`、`CITATION.cff`（通过 CFF 1.2.0 官方 schema 字段校验）；`CONTRIBUTING.md`、`CHANGELOG.md`、issue/PR 模板、`.editorconfig` / `.gitattributes`
 - **演示能力**：`scripts/build-demo-fixture.sh` 支持在全新克隆上自动初始化演示仓库（幂等，产出四类合成问题数据）
+- **大仓库性能闸门**：历史遍历支持「最多 N 个提交」与「最近 N 天」两个限制条件
+  - CLI 新增 `--max-commits N` / `--since-days N`（两者可叠加取交集）
+  - GUI 配置面板新增「历史范围」分组（留空 = 不限）
+  - 受限扫描在 CLI 输出、报告页、Markdown / HTML 导出中**如实标注**范围，避免受限结论被误读为全量结论
+- **扫描前规模预估**：新增 `scan_estimate` 命令，返回提交数 / 文件数 / 工作区体积（精确值）与历史对象数、预计耗时（采样外推的粗估）
+  - 连接页新增「扫描规模预估」卡片：分 small / medium / large / huge 四档，大仓库给出建议限制并提供「应用建议」一键收敛
+- **扫描历史迁移到应用数据目录**：由 localStorage 改为 `<app_data_dir>/scan-history.json`（原子写入）
+  - 突破 localStorage 约 5MB 上限，不随浏览器缓存清理丢失，可直接备份
+  - 首次启动自动把旧版 localStorage 数据一次性迁入文件后清理旧键
+- **依赖漏洞检测（离线漏洞库）**：接入 OSV 风格离线索引，依赖维度由「仅结构检查」升级为「结构 + 已知漏洞」
+  - 新增切片 `DependencyFileContents`，解析 Cargo.lock / Cargo.toml / package-lock.json / package.json / yarn.lock / go.mod / requirements.txt / pom.xml 的（包名, 版本）
+  - 自写跨生态版本比较（semver 与 Maven / PEP 440 常见子集），无新依赖
+  - 结论 id 为 `deps-health.vuln:<公告号>:<包名>`；按「公告 + 包名」去重，版本优先采信锁定文件
+  - **可选增强**：未接入漏洞库时依赖维度行为与接入前完全一致（不报错、不扣分）
+  - CLI 新增 `--vuln-db FILE`；桌面端从应用数据目录 `vuln-index.jsonl` 自动载入
+  - 新增 `scripts/build-vuln-index.sh`：从 OSV 下载并转为紧凑 JSONL（**开发者手工执行，运行时仍零网络**）
+- **历史导入导出入口**：历史页新增「导入 / 导出」按钮
+  - 导入：文件对话框选 JSON，Rust 侧校验顶层为数组（非法/非数组直接报错），前端按 id 合并去重（现有条目优先）并提示新增条数
+  - 导出：保存对话框（默认文件名 `repo-balance-history.json`），写盘后提示文件名
+  - 复用既有的 `app.dialog()` Rust 侧 API，不新增 capabilities 权限，权限最小集保持不变
 
 ### 修复
 
@@ -38,6 +58,7 @@
 - **依赖误报**：`node_modules/` 内的嵌套清单/锁定文件不再被当作仓库自身依赖口径
 - **格式归一**：`rustfmt` 对 21 个文件做纯格式化（此前代码不符合自己声明的格式规范）
 - **MSRV 声明**：README/`Cargo.toml` 由「Rust 1.77+」修正为 **1.88+**（依赖树实测下界，1.77 无法构建）
+- **限流假阳性**：限制历史范围后，窗口最旧提交会「继承」父树中本就已存在的 blob，被误判为超大提交（实测出现「docs 提交引入 154 个文件」）。现对窗口边界提交做父树比对，只保留窗口内真正引入的 blob
 
 ### 变更
 

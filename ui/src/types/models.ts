@@ -52,6 +52,8 @@ export interface ScanReport {
   durationMs: number
   engineVersion: string
   cancelled: boolean
+  /** 历史范围受限时的告知文案；全量扫描为 null。 */
+  scopeNote: string | null
 }
 
 export interface ProgressEvent {
@@ -65,7 +67,7 @@ export interface ProgressEvent {
   findingCount?: number | null
 }
 
-/** 扫描配置：用户可调整大文件阈值与启用检查器集合。 */
+/** 扫描配置：用户可调整大文件阈值、历史范围与启用检查器集合。 */
 export interface ScanConfig {
   /** 大文件判定阈值（字节）。 */
   bigFileThreshold: number
@@ -73,6 +75,28 @@ export interface ScanConfig {
   zombieBranchDays: number
   /** 启用的检查器 id 列表（空表示全部启用）。 */
   enabledCheckers: string[]
+  /** 历史遍历提交数上限（保留最新的若干个）；null = 不限。 */
+  maxCommits: number | null
+  /** 历史时间窗（天，仅遍历最近 N 天的提交）；null = 不限。 */
+  sinceDays: number | null
+}
+
+/** 仓库规模档位（与后端 ScaleLevel 一致，snake_case）。 */
+export type ScaleLevel = 'small' | 'medium' | 'large' | 'huge'
+
+/** 扫描前的规模预估：提交数/文件数为精确值，对象数与耗时为采样外推的粗估。 */
+export interface ScaleEstimate {
+  commitCount: number
+  fileCount: number
+  totalBytes: number
+  avgObjectsPerCommit: number
+  estimatedObjects: number
+  estimatedSeconds: number
+  level: ScaleLevel
+  /** 建议的历史提交数上限；null = 无需限制。 */
+  suggestedMaxCommits: number | null
+  /** 建议的历史时间窗（天）；null = 无需限制。 */
+  suggestedSinceDays: number | null
 }
 
 /** 全部内置检查器 id（与后端注册顺序一致）。 */

@@ -94,6 +94,22 @@ pub enum DepFileKind {
     Lock,
 }
 
+/// 依赖清单/锁定文件的内容视图（DependencyFileContents 请求的采集结果）。
+///
+/// 与 [`DepFileMeta`] 的区别：携带文件内容，供依赖维度做版本解析与漏洞匹配；
+/// 仅包含工作区实际存在的文件（无法读取内容的文件不在结果内）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DepFileContent {
+    /// 相对仓库根的路径（统一正斜杠）。
+    pub path: String,
+    /// 所属生态。
+    pub ecosystem: Ecosystem,
+    /// 清单或锁定文件。
+    pub kind: DepFileKind,
+    /// 文本内容；`None` 表示未读取（超单文件上限 / 二进制 / 全仓预算耗尽）。
+    pub content: Option<String>,
+}
+
 /// 依赖清单/锁定文件元数据（工作区存在性与 git 跟踪状态）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DepFileMeta {

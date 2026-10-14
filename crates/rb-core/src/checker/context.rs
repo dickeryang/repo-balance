@@ -1,12 +1,14 @@
 //! 扫描上下文与全局配置：Checker 在 plan / check 两阶段共享的只读输入。
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
 use crate::checker::plan::DataSlice;
-use crate::model::slice_meta::{BlobMeta, BranchMeta, DepFileMeta, FileContent};
+use crate::model::slice_meta::{BlobMeta, BranchMeta, DepFileContent, DepFileMeta, FileContent};
 use crate::model::snapshot::RepoSnapshot;
+use crate::model::vuln::VulnIndex;
 
 /// 扫描全局配置载体；具体配置项由各检查器话术逐步追加字段扩展（spec 6.3.3）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +23,24 @@ pub struct ScanConfig {
     /// 僵尸分支「超 N 天未活跃」判定阈值（天），默认 90。
     #[serde(default = "default_zombie_branch_days")]
     pub zombie_branch_days: u64,
+
+    /// 历史遍历提交数上限（保留最新的若干个）；`None` 表示不限（默认）。
+    ///
+    /// 大仓库性能闸门：历史 blob 采集与提交数近似线性，超大规模仓库可据此
+    /// 把耗时压到可接受范围（代价是更老的历史不参与结论）。
+    #[serde(default)]
+    pub max_commits: Option<usize>,
+
+    /// 历史时间窗：仅遍历该 Unix 秒之后（含）的提交；`None` 表示不限（默认）。
+    #[serde(default)]
+    pub history_since: Option<i64>,
+
+    /// 离线依赖漏洞库索引；由壳层注入，`None` 表示未接入（默认）。
+    ///
+    /// 未接入时依赖维度退化为「仅结构检查」，与接入前行为完全一致。
+    /// `serde(skip)`：索引体积大且由壳层持有，不进配置 JSON；反序列化回 `None`。
+    #[serde(skip)]
+    pub vuln_index: Option<Arc<VulnIndex>>,
 }
 
 /// [`ScanConfig::zombie_branch_days`] 的 serde 缺省值（90 天）。
@@ -33,6 +53,9 @@ impl Default for ScanConfig {
         Self {
             big_file_threshold: 1_048_576,
             zombie_branch_days: default_zombie_branch_days(),
+            max_commits: None,
+            history_since: None,
+            vuln_index: None,
         }
     }
 }
@@ -52,6 +75,8 @@ pub enum SliceData {
     BranchGraph(Vec<BranchMeta>),
     /// 依赖清单/锁定文件元数据视图（DependencyFiles 请求的采集结果）。
     DependencyFiles(Vec<DepFileMeta>),
+    /// 依赖清单/锁定文件的内容视图（DependencyFileContents 请求的采集结果）。
+    DependencyFileContents(Vec<DepFileContent>),
 }
 
 /// Checker 在 plan / check 两阶段共享的只读上下文（spec 5.3）。
@@ -107,6 +132,13 @@ impl<'a> ScanContext<'a> {
     pub fn slice(&self, slice: &DataSlice) -> Option<&SliceData> {
         self.slices.get(slice)
     }
+
+    /// 只读访问离线漏洞库索引；未接入时为 `None`。
+    ///
+    /// 检查器据此决定是否做漏洞匹配：无索引时不得产出任何漏洞结论。
+    pub fn vuln_index(&self) -> Option<&VulnIndex> {
+        self.config.vuln_index.as_deref()
+    }
 }
 
 #[cfg(test)]
@@ -158,6 +190,28 @@ mod tests {
         let cfg: ScanConfig = serde_json::from_str(r#"{"big_file_threshold":2048}"#).unwrap();
         assert_eq!(cfg.big_file_threshold, 2048);
         assert_eq!(cfg.zombie_branch_days, 90);
+    }
+
+    /// 历史限制默认不限（None），旧配置反序列化缺省亦为 None。
+    #[test]
+    fn 默认配置_历史限制为不限() {
+        let cfg = ScanConfig::default();
+        assert_eq!(cfg.max_commits, None);
+        assert_eq!(cfg.history_since, None);
+        let old: ScanConfig = serde_json::from_str(r#"{"big_file_threshold":2048}"#).unwrap();
+        assert_eq!(old.max_commits, None, "旧配置无该字段时回退不限");
+        assert_eq!(old.history_since, None);
+    }
+
+    /// 历史限制字段可反序列化（大仓库配置场景）。
+    #[test]
+    fn 配置反序列化_历史限制字段() {
+        let cfg: ScanConfig = serde_json::from_str(
+            r#"{"big_file_threshold":1,"max_commits":500,"history_since":1700000000}"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.max_commits, Some(500));
+        assert_eq!(cfg.history_since, Some(1_700_000_000));
     }
 
     /// insert_slice 注入后就绪并可取回载荷；未注入切片仍为未就绪。

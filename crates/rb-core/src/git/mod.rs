@@ -2,4 +2,4 @@
 
 mod repo;
 
-pub use repo::GitRepo;
+pub use repo::{GitRepo, HistoryLimit};

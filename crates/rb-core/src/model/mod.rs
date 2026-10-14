@@ -1,7 +1,9 @@
 pub mod finding;
 pub mod report;
+pub mod scale;
 pub mod slice_meta;
 pub mod snapshot;
+pub mod vuln;
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {

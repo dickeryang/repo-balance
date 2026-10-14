@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useScanStore } from '../stores/scan'
 import { useI18n } from '../i18n'
 
@@ -45,6 +46,32 @@ function deleteEntry(id: string) {
   if (baselineId.value === id) baselineId.value = null
   if (targetId.value === id) targetId.value = null
 }
+
+async function doImport() {
+  try {
+    const added = await store.importHistory()
+    // -1 = 用户在文件对话框取消，不提示
+    if (added < 0) return
+    if (added === 0) {
+      ElMessage.info(t('history.importedNone'))
+    } else {
+      ElMessage.success(t('history.imported').replace('{n}', String(added)))
+    }
+  } catch (e) {
+    ElMessage.error(`${t('history.importFailed')}: ${String(e)}`)
+  }
+}
+
+async function doExport() {
+  try {
+    const path = await store.exportHistory()
+    if (path) {
+      ElMessage.success(`${t('history.exported')} ${path.split(/[\\/]/).pop()}`)
+    }
+  } catch (e) {
+    ElMessage.error(`${t('history.exportFailed')}: ${String(e)}`)
+  }
+}
 </script>
 
 <template>
@@ -54,11 +81,22 @@ function deleteEntry(id: string) {
         <h2>{{ t('history.title') }}</h2>
         <div class="head-actions">
           <span class="dim">{{ t('history.count') }} {{ store.history.length }} {{ t('history.countUnit') }}</span>
+          <button class="btn ghost small" @click="doImport()">
+            {{ t('history.import') }}
+          </button>
+          <button
+            v-if="store.history.length > 0"
+            class="btn ghost small"
+            @click="doExport()"
+          >
+            {{ t('history.export') }}
+          </button>
           <button v-if="store.history.length > 0" class="btn danger small" @click="store.clearHistory(); clearSelection()">
             {{ t('history.clearAll') }}
           </button>
         </div>
       </div>
+      <p class="dim storage-hint">{{ t('history.storageHint') }}</p>
 
       <div v-if="store.history.length === 0" class="empty">
         <p>{{ t('history.empty') }}</p>
@@ -238,6 +276,10 @@ function deleteEntry(id: string) {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
+}
+.storage-hint {
+  font-size: 11px;
+  margin-bottom: 14px;
 }
 .empty {
   text-align: center;

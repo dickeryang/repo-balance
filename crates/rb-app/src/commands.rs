@@ -10,9 +10,24 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 
-use crate::dto::{RepoSnapshotDto, ScanReportDto};
+use crate::dto::{RepoSnapshotDto, ScaleEstimateDto, ScanReportDto};
 use crate::error::map_error;
 use crate::state::ScanState;
+use rb_core::model::vuln::VulnIndex;
+
+/// 扫描历史文件名（存放于应用数据目录）。
+const HISTORY_FILE_NAME: &str = "scan-history.json";
+
+/// 离线漏洞库索引文件名（存放于应用数据目录；缺失即不做漏洞匹配）。
+const VULN_INDEX_FILE_NAME: &str = "vuln-index.jsonl";
+
+/// 当前 Unix 秒（系统调用失败时回退 0——仅用于时间窗换算）。
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or_default()
+}
 
 /// 打开系统目录选择对话框，返回选中路径（用户取消返回 None）。
 #[tauri::command]
@@ -108,6 +123,8 @@ pub async fn start_scan(
     let cancel_flag = state.cancel_flag();
     let cancel_flag_arc = cancel_flag.clone();
     let cfg = config.unwrap_or_default();
+    // 受限扫描的范围说明随报告一起推送，前端与导出据此如实标注。
+    let scope_note = scope_note_of(&cfg);
 
     tauri::async_runtime::spawn(async move {
         let app_for_blocking = app_handle.clone();
@@ -137,10 +154,10 @@ pub async fn start_scan(
             if enabled("deps-health") {
                 let _ = registry.register(Box::new(rb_core::checker::DepsHealthChecker));
             }
-            let core_config = rb_core::checker::ScanConfig {
-                big_file_threshold: cfg.big_file_threshold,
-                zombie_branch_days: cfg.zombie_branch_days,
-            };
+            let mut core_config = cfg.to_core_config(now_secs());
+            // 漏洞库在壳层载入（rb-core 不做文件 I/O）；缺失/损坏时静默降级为
+            // 「不做漏洞匹配」，不因可选增强失败而中断扫描。
+            core_config.vuln_index = load_vuln_index(&app);
             rb_core::engine::scan::scan_with_progress(
                 &path_buf,
                 &registry,
@@ -163,6 +180,7 @@ pub async fn start_scan(
                 if was_cancelled {
                     dto.cancelled = true;
                 }
+                dto.scope_note = scope_note;
                 let _ = app_handle.emit("scan-done", dto);
             }
             Ok(Err(e)) => {
@@ -174,6 +192,170 @@ pub async fn start_scan(
         }
     });
     Ok(())
+}
+
+/// 载入离线漏洞库索引（应用数据目录下 `vuln-index.jsonl`）。
+///
+/// 缺失 / 损坏 / 读取失败一律返回 `None`：漏洞检测是**可选增强**，
+/// 不应让扫描失败——未接入时依赖维度照常做结构检查。
+pub(crate) fn load_vuln_index(app: &tauri::AppHandle) -> Option<std::sync::Arc<VulnIndex>> {
+    let dir = app.path().app_data_dir().ok()?;
+    let path = dir.join(VULN_INDEX_FILE_NAME);
+    let text = std::fs::read_to_string(&path).ok()?;
+    match rb_core::vuln::load_index(&text) {
+        Ok(index) => {
+            let count = index.len();
+            // 载入失败不阻断扫描，但要留下可诊断的痕迹。
+            if count == 0 {
+                eprintln!("警告: 漏洞库 {VULN_INDEX_FILE_NAME} 为空，跳过漏洞匹配");
+                return None;
+            }
+            eprintln!("已载入漏洞库: {count} 条公告");
+            Some(std::sync::Arc::new(index))
+        }
+        Err(e) => {
+            eprintln!("警告: 漏洞库解析失败，跳过漏洞匹配: {e}");
+            None
+        }
+    }
+}
+
+/// 历史范围受限时的告知文案；未限流（两项均空/0）返回 `None`。
+///
+/// 受限结论必须与全量结论区分，否则「没扫到的老历史」会被误读为「没有问题」。
+fn scope_note_of(cfg: &crate::dto::ScanConfigDto) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(n) = cfg.max_commits.filter(|n| *n > 0) {
+        parts.push(format!("最新 {n} 个提交"));
+    }
+    if let Some(d) = cfg.since_days.filter(|d| *d > 0) {
+        parts.push(format!("最近 {d} 天"));
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "历史范围: {}（更老的提交未参与本次结论）",
+        parts.join(" · ")
+    ))
+}
+
+/// 扫描前的规模预估：提交数/文件数为精确值，历史对象数与耗时为采样外推的粗估。
+///
+/// 异步命令：与快照同量级的 I/O（revwalk + 目录遍历），放入 spawn_blocking。
+#[tauri::command]
+pub async fn scan_estimate(path: String) -> Result<ScaleEstimateDto, String> {
+    let path_buf = PathBuf::from(&path);
+    let est = tauri::async_runtime::spawn_blocking(move || {
+        let repo = rb_core::git::GitRepo::open(&path_buf).map_err(map_error)?;
+        repo.scale_estimate().map_err(map_error)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(ScaleEstimateDto::from(est))
+}
+
+/// 扫描历史文件路径（应用数据目录下 `scan-history.json`）。
+///
+/// 目录不存在时自动创建；解析失败返回用户可读的中文错误（不泄露内部细节）。
+fn history_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "无法定位应用数据目录".to_owned())?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建应用数据目录失败: {e}"))?;
+    Ok(dir.join(HISTORY_FILE_NAME))
+}
+
+/// 读取扫描历史（JSON 数组字符串）；文件不存在时返回 `[]`。
+///
+/// 历史持久化从 localStorage 迁至应用数据目录：突破 5MB 上限、不随浏览器
+/// 缓存清理丢失、可被用户直接备份。数据形状由前端定义，此处按不透明字符串搬运。
+#[tauri::command]
+pub async fn load_scan_history(app: tauri::AppHandle) -> Result<String, String> {
+    let path = history_file(&app)?;
+    match std::fs::read_to_string(&path) {
+        Ok(content) if !content.trim().is_empty() => Ok(content),
+        Ok(_) => Ok("[]".to_owned()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok("[]".to_owned()),
+        Err(e) => Err(format!("读取扫描历史失败: {e}")),
+    }
+}
+
+/// 写入扫描历史（覆盖写，先落临时文件再 rename，避免半截写入损坏历史）。
+#[tauri::command]
+pub async fn save_scan_history(app: tauri::AppHandle, data: String) -> Result<(), String> {
+    let path = history_file(&app)?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, data).map_err(|e| format!("写入扫描历史失败: {e}"))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("保存扫描历史失败: {e}"))
+}
+
+/// 导入扫描历史：文件对话框选 JSON → 校验为数组 → 返回内容交给前端合并。
+///
+/// 在此校验「顶层必须是 JSON 数组」，避免把任意文件塞进历史把既有数据弄坏。
+#[tauri::command]
+pub async fn import_scan_history(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .pick_file(move |path| {
+            let _ = tx.send(path);
+        });
+
+    let result = rx.await.map_err(|e| e.to_string())?;
+    let Some(path) = result else {
+        return Ok(None); // 用户取消
+    };
+    let file_path = path
+        .as_path()
+        .ok_or_else(|| "无效的文件路径".to_owned())?
+        .to_path_buf();
+
+    let content = std::fs::read_to_string(&file_path).map_err(|e| format!("读取文件失败: {e}"))?;
+    validate_history_json(&content)?;
+    Ok(Some(content))
+}
+
+/// 校验导入内容顶层为 JSON 数组；非数组或非法 JSON 均给出可读错误。
+///
+/// 单独抽函数便于单测——对话框本身依赖运行时，无法在测试中驱动。
+fn validate_history_json(content: &str) -> Result<(), String> {
+    match serde_json::from_str::<serde_json::Value>(content) {
+        Ok(v) if v.is_array() => Ok(()),
+        Ok(_) => Err("导入失败：文件顶层不是 JSON 数组".to_owned()),
+        Err(e) => Err(format!("导入失败：不是合法的 JSON（{e}）")),
+    }
+}
+
+/// 导出扫描历史：保存对话框选路径 → 写盘 → 返回实际路径（用户取消时为 `None`）。
+#[tauri::command]
+pub async fn export_scan_history(
+    app: tauri::AppHandle,
+    data: String,
+) -> Result<Option<String>, String> {
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .set_file_name("repo-balance-history.json")
+        .save_file(move |path| {
+            let _ = tx.send(path);
+        });
+
+    let result = rx.await.map_err(|e| e.to_string())?;
+    match result {
+        Some(path) => {
+            let file_path = path
+                .as_path()
+                .ok_or_else(|| "无效的保存路径".to_owned())?
+                .to_path_buf();
+            std::fs::write(&file_path, data).map_err(|e| format!("导出失败: {e}"))?;
+            Ok(Some(file_path.to_string_lossy().to_string()))
+        }
+        None => Ok(None),
+    }
 }
 
 /// 取消扫描（设置 AtomicBool 取消标志）。
@@ -236,6 +418,10 @@ fn report_to_markdown(report: &ScanReportDto) -> String {
     md.push_str(&format!("**仓库**: {}\n", report.repo_path));
     md.push_str(&format!("**引擎版本**: {}\n", report.engine_version));
     md.push_str(&format!("**耗时**: {}ms\n\n", report.duration_ms));
+    // 受限扫描必须如实在报告里标注，避免受限结论被当成全量结论。
+    if let Some(scope) = &report.scope_note {
+        md.push_str(&format!("**⚠ {scope}**\n\n"));
+    }
 
     md.push_str("## 五维评分\n\n");
     for point in &report.radar_points {
@@ -505,6 +691,7 @@ h2 {{ font-size:18px; margin:24px 0 12px; }}
 .evidence {{ font-family:"SF Mono",Menlo,monospace; font-size:12px; color:#ffd9dd; word-break:break-all; line-height:1.7; white-space:pre-wrap; }}
 .suggestion {{ font-size:13px; line-height:1.7; border-left:3px solid #4f8cff; background:rgba(79,140,255,0.15); padding:10px 14px; border-radius:0 8px 8px 0; }}
 .healthy {{ color:#4fd07a; text-align:center; padding:16px; }}
+.scope-note {{ background:rgba(255,176,32,0.12); border:1px solid rgba(255,176,32,0.4); color:#ffd08a; border-radius:8px; padding:10px 14px; font-size:12px; margin-bottom:20px; }}
 footer {{ color:#8b95ab; font-size:12px; text-align:center; margin-top:32px; }}
 </style>
 </head>
@@ -512,6 +699,7 @@ footer {{ color:#8b95ab; font-size:12px; text-align:center; margin-top:32px; }}
 <div class="container">
 <h1>仓衡 · Git 仓库健康度体检报告</h1>
 <div class="meta">仓库：{} · 引擎版本 {} · 扫描时间 {} · 耗时 {}ms{}</div>
+{}
 <div class="report-head">
 <div class="score-card">
 <div class="score-big {}">{}</div>
@@ -538,6 +726,12 @@ footer {{ color:#8b95ab; font-size:12px; text-align:center; margin-top:32px; }}
         } else {
             ""
         },
+        // 历史范围受限提示（全量扫描为空串，不占位）。
+        report
+            .scope_note
+            .as_deref()
+            .map(|s| format!("<div class=\"scope-note\">⚠ {}</div>", html_escape(s)))
+            .unwrap_or_default(),
         total_class,
         total_score,
         radar_svg(&report.radar_points),
@@ -545,4 +739,131 @@ footer {{ color:#8b95ab; font-size:12px; text-align:center; margin-top:32px; }}
         report.findings.len(),
         findings_html,
     )
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+mod tests {
+    use super::{scope_note_of, validate_history_json};
+    use crate::dto::ScanConfigDto;
+
+    /// 未限流（全部为空）不产出范围说明。
+    #[test]
+    fn 范围说明_未限流时为None() {
+        assert_eq!(scope_note_of(&ScanConfigDto::default()), None);
+    }
+
+    /// 0 值按「不限」处理，与 dto 换算口径一致。
+    #[test]
+    fn 范围说明_零值按不限处理() {
+        let cfg = ScanConfigDto {
+            max_commits: Some(0),
+            since_days: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(scope_note_of(&cfg), None);
+    }
+
+    /// 单项限流：只标注该项。
+    #[test]
+    fn 范围说明_单项限流() {
+        let cfg = ScanConfigDto {
+            max_commits: Some(500),
+            ..Default::default()
+        };
+        let note = scope_note_of(&cfg).unwrap();
+        assert!(note.contains("最新 500 个提交"), "{note}");
+        assert!(!note.contains("最近"), "{note}");
+    }
+
+    /// 双项限流：以「·」连接两项。
+    #[test]
+    fn 范围说明_双项限流() {
+        let cfg = ScanConfigDto {
+            max_commits: Some(500),
+            since_days: Some(365),
+            ..Default::default()
+        };
+        let note = scope_note_of(&cfg).unwrap();
+        assert!(note.contains("最新 500 个提交"), "{note}");
+        assert!(note.contains("最近 365 天"), "{note}");
+        assert!(note.contains("·"), "{note}");
+    }
+
+    /// 导入校验：顶层数组（含空数组）通过。
+    #[test]
+    fn 导入校验_顶层数组通过() {
+        assert!(validate_history_json("[]").is_ok());
+        assert!(validate_history_json(r#"[{"id":"a"}]"#).is_ok());
+    }
+
+    /// 导入校验：非数组（对象 / 标量）与非法 JSON 均拒绝，避免脏数据覆盖历史。
+    #[test]
+    fn 导入校验_非数组与非法JSON被拒绝() {
+        for bad in [
+            r#"{"id":"a"}"#,
+            "null",
+            "\"str\"",
+            "123",
+            "",
+            "[{]",
+            "not json",
+        ] {
+            let err = validate_history_json(bad).unwrap_err();
+            assert!(!err.is_empty(), "应给出错误: {bad}");
+        }
+    }
+
+    /// Markdown 导出携带范围说明（受限结论不可被当成全量结论）。
+    #[test]
+    fn 导出_markdown携带范围说明() {
+        let mut report = crate::dto::ScanReportDto::from(rb_core::model::report::ScanReport {
+            repo_path: "/tmp/demo".into(),
+            findings: Vec::new(),
+            scores: rb_core::model::report::Scores {
+                structure: Some(100),
+                history: Some(100),
+                branches: Some(100),
+                deps: Some(100),
+                security: Some(100),
+            },
+            started_at: 1,
+            duration_ms: 2,
+            engine_version: "0.1.0".into(),
+        });
+        report.scope_note = scope_note_of(&ScanConfigDto {
+            since_days: Some(30),
+            ..Default::default()
+        });
+        let md = super::report_to_markdown(&report);
+        assert!(md.contains("⚠ 历史范围"), "{md}");
+        assert!(md.contains("最近 30 天"), "{md}");
+        assert!(md.contains("未参与本次结论"), "{md}");
+    }
+
+    /// HTML 导出携带范围说明（自包含报告同样如实标注）。
+    #[test]
+    fn 导出_html携带范围说明() {
+        let mut report = crate::dto::ScanReportDto::from(rb_core::model::report::ScanReport {
+            repo_path: "/tmp/demo".into(),
+            findings: Vec::new(),
+            scores: rb_core::model::report::Scores {
+                structure: Some(100),
+                history: Some(100),
+                branches: Some(100),
+                deps: Some(100),
+                security: Some(100),
+            },
+            started_at: 1,
+            duration_ms: 2,
+            engine_version: "0.1.0".into(),
+        });
+        report.scope_note = scope_note_of(&ScanConfigDto {
+            max_commits: Some(10),
+            ..Default::default()
+        });
+        let html = super::report_to_html(&report);
+        assert!(html.contains("class=\"scope-note\""), "缺少范围提示块");
+        assert!(html.contains("最新 10 个提交"), "缺少范围文案");
+    }
 }

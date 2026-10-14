@@ -10,6 +10,7 @@ function resetSelection() {
   store.selectedPath = null
   store.repoInfo = null
   store.repoError = null
+  store.scaleEstimate = null
 }
 
 function startScan() {

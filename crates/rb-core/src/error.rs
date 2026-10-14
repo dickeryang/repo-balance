@@ -22,4 +22,8 @@ pub enum RbError {
     /// 非法的数据切片请求（如 FileContents 空模式）。
     #[error("非法的数据切片请求: {0}")]
     InvalidSlice(String),
+
+    /// 离线漏洞库索引解析失败（携带行号等定位信息）。
+    #[error("漏洞库错误: {0}")]
+    VulnDb(String),
 }

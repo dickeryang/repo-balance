@@ -3,14 +3,17 @@ import { ref, computed } from 'vue'
 import * as ipc from '../ipc/commands'
 import { onScanDone, onScanProgress, onScanError } from '../ipc/events'
 import type { UnlistenFn } from '@tauri-apps/api/event'
-import type { RepoSnapshot, ScanReport, CheckerFeedRow, ProgressEvent, ScanConfig, HistoryEntry, HistoryCompare, Finding } from '../types/models'
+import type { RepoSnapshot, ScanReport, CheckerFeedRow, ProgressEvent, ScanConfig, ScaleEstimate, HistoryEntry, HistoryCompare, Finding } from '../types/models'
 import { ALL_CHECKER_IDS } from '../types/models'
 
 const DEFAULT_CONFIG: ScanConfig = {
   bigFileThreshold: 1_048_576,
   zombieBranchDays: 90,
   enabledCheckers: [...ALL_CHECKER_IDS],
+  maxCommits: null,
+  sinceDays: null,
 }
+/** 旧版 localStorage 键：仅用于一次性迁移，读走后即清理。 */
 const HISTORY_KEY = 'rb-scan-history'
 const HISTORY_MAX = 20
 
@@ -24,22 +27,26 @@ function loadConfig(): ScanConfig {
   return { ...DEFAULT_CONFIG }
 }
 
-function loadHistory(): HistoryEntry[] {
+/** 解析历史 JSON；非法内容回退空列表（旧数据损坏不应阻断启动）。 */
+function parseHistory(raw: string | null): HistoryEntry[] {
+  if (!raw) return []
   try {
-    const raw = localStorage.getItem(HISTORY_KEY)
-    if (raw) return JSON.parse(raw) as HistoryEntry[]
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as HistoryEntry[]) : []
   } catch {
-    /* 解析失败回退空列表 */
+    return []
   }
-  return []
 }
 
-function persistHistory(entries: HistoryEntry[]) {
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries))
-  } catch {
-    /* 忽略持久化失败 */
-  }
+/**
+ * 合并两组历史：现有条目优先（同 id 不覆盖），按保存时间倒序保留最新 HISTORY_MAX 条。
+ * 迁移旧数据与导入外部文件共用同一口径。
+ */
+function mergeHistory(current: HistoryEntry[], incoming: HistoryEntry[]): HistoryEntry[] {
+  const ids = new Set(current.map((e) => e.id))
+  return [...current, ...incoming.filter((e) => !ids.has(e.id))]
+    .sort((a, b) => b.savedAt - a.savedAt)
+    .slice(0, HISTORY_MAX)
 }
 
 function repoNameOf(path: string): string {
@@ -67,7 +74,11 @@ export const useScanStore = defineStore('scan', () => {
   const activeFilter = ref('all')
   const expandedFindings = ref<Set<string>>(new Set())
   const scanConfig = ref<ScanConfig>(loadConfig())
-  const history = ref<HistoryEntry[]>(loadHistory())
+  // 历史自文件异步加载（initHistory），初始为空列表。
+  const history = ref<HistoryEntry[]>([])
+  const scaleEstimate = ref<ScaleEstimate | null>(null)
+  /** 历史是否已从应用数据目录载入（未完成时写入会被丢弃，防覆盖旧数据）。 */
+  let historyLoaded = false
 
   // 扫描代际号：每次开启新扫描自增；事件回调按注册时捕获的代际过滤，
   // 迟到的陈旧事件（上一轮扫描的 scan-done 等）直接丢弃。
@@ -109,8 +120,97 @@ export const useScanStore = defineStore('scan', () => {
       repoError.value = null
     } catch (e) {
       repoInfo.value = null
+      scaleEstimate.value = null
       repoError.value = String(e)
+      return
     }
+    // 规模预估失败不影响扫描（只是少一条提示），静默降级。
+    try {
+      scaleEstimate.value = await ipc.scanEstimate(path)
+    } catch {
+      scaleEstimate.value = null
+    }
+  }
+
+  /**
+   * 启动时载入扫描历史：优先应用数据目录文件；
+   * 首次运行把旧版 localStorage 数据一次性迁入文件后清理旧键。
+   */
+  async function initHistory() {
+    let entries: HistoryEntry[] = []
+    let loaded = false
+    try {
+      entries = parseHistory(await ipc.loadScanHistory())
+      loaded = true
+    } catch (e) {
+      // 载入失败时文件内容未知，标记为未载入以暂停写入，避免覆盖已有历史。
+      console.error('读取扫描历史失败:', e)
+    }
+
+    let legacy: HistoryEntry[] = []
+    try {
+      legacy = parseHistory(localStorage.getItem(HISTORY_KEY))
+    } catch {
+      legacy = []
+    }
+    if (legacy.length > 0) {
+      // 合并去重后写回文件，再移除旧键（迁移只做一次）。
+      entries = mergeHistory(entries, legacy)
+      try {
+        localStorage.removeItem(HISTORY_KEY)
+      } catch {
+        /* 忽略清理失败 */
+      }
+    }
+
+    history.value = entries
+    historyLoaded = loaded
+    if (legacy.length > 0) await persistHistory(entries)
+  }
+
+  /**
+   * 导入外部历史文件：与现有历史按 id 合并去重，保留最新的 HISTORY_MAX 条。
+   * 返回新增条数（去重后真正并入的条数）；返回 -1 表示用户取消，由调用方决定提示。
+   */
+  async function importHistory(): Promise<number> {
+    const raw = await ipc.importScanHistory()
+    if (raw === null) return -1
+    const incoming = parseHistory(raw)
+    const existingIds = new Set(history.value.map((e) => e.id))
+    const added = incoming.filter((e) => !existingIds.has(e.id)).length
+    const merged = mergeHistory(history.value, incoming)
+    history.value = merged
+    await persistHistory(merged)
+    return added
+  }
+
+  /** 导出全部历史为 JSON 文件；返回实际保存路径（用户取消时为 null）。 */
+  async function exportHistory(): Promise<string | null> {
+    return ipc.exportScanHistory(JSON.stringify(history.value, null, 2))
+  }
+
+  /** 把历史写入应用数据目录文件（未载入完成时跳过，避免覆盖已有数据）。 */
+  async function persistHistory(entries: HistoryEntry[]) {
+    if (!historyLoaded) {
+      console.warn('扫描历史尚未载入完成，本次跳过写入')
+      return
+    }
+    try {
+      await ipc.saveScanHistory(JSON.stringify(entries))
+    } catch (e) {
+      console.error('保存扫描历史失败:', e)
+    }
+  }
+
+  /** 应用规模预估给出的建议限制（大仓库一键收敛历史范围）。 */
+  function applySuggestedLimits() {
+    const est = scaleEstimate.value
+    if (!est) return
+    setScanConfig({
+      ...scanConfig.value,
+      maxCommits: est.suggestedMaxCommits,
+      sinceDays: est.suggestedSinceDays,
+    })
   }
 
   /** 注销当前扫描的事件监听。 */
@@ -244,6 +344,7 @@ export const useScanStore = defineStore('scan', () => {
     isCancelled.value = false
     activeFilter.value = 'all'
     expandedFindings.value = new Set()
+    scaleEstimate.value = null
   }
 
   /** 更换仓库：取消在途扫描、清空全部状态并回到接入页。 */
@@ -257,10 +358,6 @@ export const useScanStore = defineStore('scan', () => {
 
   function setCurrentView(view: 1 | 2 | 3 | 4) {
     currentView.value = view
-  }
-
-  function setCheckerFeed(feed: CheckerFeedRow[]) {
-    checkerFeed.value = feed
   }
 
   /** 更新扫描配置并持久化到 localStorage。 */
@@ -341,10 +438,15 @@ export const useScanStore = defineStore('scan', () => {
     expandedFindings,
     scanConfig,
     history,
+    scaleEstimate,
     filteredFindings,
     totalScore,
     selectDirectory,
     fetchRepoInfo,
+    initHistory,
+    applySuggestedLimits,
+    importHistory,
+    exportHistory,
     startScan,
     cancelScan,
     exportReport,
@@ -353,7 +455,6 @@ export const useScanStore = defineStore('scan', () => {
     toggleFinding,
     resetToConnect,
     setCurrentView,
-    setCheckerFeed,
     setScanConfig,
     deleteHistory,
     clearHistory,

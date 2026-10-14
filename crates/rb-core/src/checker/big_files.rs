@@ -165,7 +165,7 @@ mod tests {
     use super::BigFilesChecker;
     use crate::checker::{Checker, CheckerRegistry, DataSlice, ScanConfig, ScanContext, SliceData};
     use crate::engine::scan::scan;
-    use crate::git::GitRepo;
+    use crate::git::{GitRepo, HistoryLimit};
     use crate::model::finding::Severity;
     use crate::model::slice_meta::{BlobMeta, FileContent};
     use crate::model::snapshot::{CommitSummary, RepoSnapshot};
@@ -282,10 +282,12 @@ mod tests {
         let git = GitRepo::open(t.path()).unwrap();
         let snap = git.snapshot().unwrap();
         let workdir = git.workdir_file_contents(1_048_576, 8 * 1_048_576).unwrap();
-        let history = git.history_blob_metas(64, None, None).unwrap();
+        let history = git
+            .history_blob_metas(64, None, None, &HistoryLimit::default())
+            .unwrap();
         let config = ScanConfig {
             big_file_threshold: 1,
-            zombie_branch_days: 90,
+            ..Default::default()
         };
         let mut ctx = ScanContext::base(&snap, &config);
         ctx.insert_slice(
@@ -309,7 +311,7 @@ mod tests {
         let snap = zero_snapshot();
         let config = ScanConfig {
             big_file_threshold: 100,
-            zombie_branch_days: 90,
+            ..Default::default()
         };
         let ctx = ctx_with(&snap, &config, vec![file_meta("a.txt", 100)], vec![]);
         let findings = BigFilesChecker.check(&ctx);
@@ -327,7 +329,7 @@ mod tests {
         let snap = zero_snapshot();
         let config = ScanConfig {
             big_file_threshold: 100,
-            zombie_branch_days: 90,
+            ..Default::default()
         };
         let ctx = ctx_with(
             &snap,
@@ -347,7 +349,7 @@ mod tests {
         let snap = zero_snapshot();
         let config = ScanConfig {
             big_file_threshold: 100,
-            zombie_branch_days: 90,
+            ..Default::default()
         };
         let ctx = ctx_with(
             &snap,
@@ -366,7 +368,7 @@ mod tests {
         let snap = zero_snapshot();
         let config = ScanConfig {
             big_file_threshold: 100,
-            zombie_branch_days: 90,
+            ..Default::default()
         };
         let ctx = ctx_with(
             &snap,
@@ -410,7 +412,7 @@ mod tests {
         let snap = zero_snapshot();
         let config = ScanConfig {
             big_file_threshold: 100,
-            zombie_branch_days: 90,
+            ..Default::default()
         };
         let ctx = ctx_with(&snap, &config, vec![file_meta("a.txt", 200)], vec![]);
         assert_eq!(BigFilesChecker.check(&ctx), BigFilesChecker.check(&ctx));

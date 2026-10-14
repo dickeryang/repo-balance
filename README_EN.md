@@ -247,6 +247,7 @@ repo-balance/
 - **CSP**: `default-src 'self'` (no external resource loading)
 - **Minimal permissions**: `core:default` + `dialog:allow-open` + `core:event:default` (no fs/shell)
 - **Path sources**: system directory picker only — no free-text path input
+- **Local writes**: the repository itself is always read-only; besides reports the user exports explicitly, the only file written is `scan-history.json` in the app data directory
 - **Fully local, zero network**: nothing is ever sent to a remote server
 - **Masked evidence**: evidence is masked when constructed in `rb-core`; export/IPC never restores it
 - **Zero Tauri dependency in `rb-core`**: the core compiles as a standalone CLI, decoupled from any UI framework
@@ -274,22 +275,23 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 - [x] **Secrets checker** — private-key headers / AWS access key / GitHub & GitLab tokens / `.env` assignments / high-entropy secrets, dual-channel (regex + Shannon entropy), evidence masked at construction, stop-word allowlist for sample values
 - [x] **Zombie branches checker** — merged but undeleted, inactive beyond N days (90 default, configurable), no upstream tracking
 - [x] **Commit habits checker** — oversized commits (>50 files Warning / >200 Critical), low-quality message ratio, late-night ratio (per commit timezone)
-- [x] **Dependency health checker (lite)** — missing / uncommitted / deleted lockfiles, mixed package managers (structural checks only; a vulnerability database is a mid-term item)
+- [x] **Dependency health checker** — missing / uncommitted / deleted lockfiles, mixed package managers, plus known-vulnerability findings once an offline advisory index is present (parses 8 manifest/lockfile kinds with cross-ecosystem version matching; falls back to structural checks with no index)
 - [x] **Scoring fix** — dimensions without a checker show N/A instead of 100; the total score averages covered dimensions only
 - [x] **Report export** — JSON / Markdown / HTML (self-contained, inline SVG radar chart)
-- [x] **Scan history** — persisted locally; compare two scans (new / resolved findings)
+- [x] **Scan history** — persisted in `scan-history.json` under the app data directory (legacy localStorage data is migrated automatically); compare two scans (new / resolved findings); import / export as a JSON backup
 - [x] **Ignore rules** — `.repobalance-ignore` with negated rules (`!pattern`); built-in defaults for build output (`target/`, `node_modules/`, …) that can be negated
 - [x] **CI integration** — GitHub Actions pipeline running the checkup in CLI mode and uploading the report
 - [x] **i18n** — Chinese / English UI toggle
+- [x] **Large-repo throttle** — limit history traversal to the newest N commits / last N days (CLI `--max-commits` / `--since-days`, GUI "History Scope"); limited scans are labelled in the CLI, report page and exports
+- [x] **Scan scale estimate** — the connect view shows commits / files / size and an estimated duration (object count and duration are extrapolated from a sample); large repos get a suggested limit that can be applied in one click
 
 ### Next (v0.2 ~ v0.3)
 
-- [ ] **History persistence migration** — localStorage → app data directory, with export support
-- [ ] **PDF export**
+- [ ] **PDF export** (reports contain Chinese text; CJK font embedding needs to be solved)
 
 ### Mid / long term (v0.5 → v1.0)
 
-- [ ] **Dependency vulnerability detection** — integrate the offline OSV database to cover the whole stack in one tool
+- [ ] **One-click advisory DB update / bundled distribution** — the generator script exists (`scripts/build-vuln-index.sh`), but there is no GUI entry yet
 - [ ] **Remote repository checkup** — shallow-clone a URL, scan locally, clean up
 - [ ] **Bulk multi-repository checkup** — scan queue plus an aggregate dashboard for team governance
 - [ ] **Health trend analysis** — quality evolution curves from historical data

@@ -40,6 +40,10 @@ const { el: radarPanel, isFullscreen, toggle: toggleFullscreen } = useFullscreen
       <DimLegend />
     </div>
   </div>
+  <!-- 受限扫描如实标注：避免「没扫到的历史」被误读为「没有问题」 -->
+  <div v-if="store.report?.scopeNote" class="scope-note">
+    ⚠ {{ store.report.scopeNote }}
+  </div>
   <FindingList />
 </template>
 
@@ -57,6 +61,15 @@ const { el: radarPanel, isFullscreen, toggle: toggleFullscreen } = useFullscreen
   display: flex;
   gap: 20px;
   margin-bottom: 20px;
+}
+.scope-note {
+  background: rgba(255, 176, 32, 0.12);
+  border: 1px solid rgba(255, 176, 32, 0.4);
+  color: var(--warning);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  margin-bottom: 16px;
 }
 .radar-panel {
   flex: 1;

@@ -3,7 +3,10 @@ mod dto;
 mod error;
 mod state;
 
-use commands::{cancel_scan, export_report, repo_info, select_directory, start_scan};
+use commands::{
+    cancel_scan, export_report, export_scan_history, import_scan_history, load_scan_history,
+    repo_info, save_scan_history, scan_estimate, select_directory, start_scan,
+};
 use state::ScanState;
 
 fn main() {
@@ -13,9 +16,14 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             select_directory,
             repo_info,
+            scan_estimate,
             start_scan,
             cancel_scan,
-            export_report
+            export_report,
+            load_scan_history,
+            save_scan_history,
+            import_scan_history,
+            export_scan_history
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -4,6 +4,7 @@ import { useI18n } from '../i18n'
 import DropZone from './connect/DropZone.vue'
 import RepoInfoCard from './connect/RepoInfoCard.vue'
 import ConfigPanel from './connect/ConfigPanel.vue'
+import ScaleEstimateCard from './connect/ScaleEstimateCard.vue'
 
 const store = useScanStore()
 const { t } = useI18n()
@@ -18,6 +19,7 @@ const { t } = useI18n()
     </div>
     <template v-else-if="store.repoInfo">
       <RepoInfoCard />
+      <ScaleEstimateCard />
       <ConfigPanel />
     </template>
   </template>

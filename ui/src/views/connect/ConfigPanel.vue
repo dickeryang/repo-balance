@@ -34,6 +34,32 @@ const zombieDays = computed<number>({
     }),
 })
 
+/**
+ * 历史范围两项为「留空 = 不限」：输入框清空写回 null，
+ * 后端口径同样把 0/null 视为不限（见 dto.rs to_core_config）。
+ */
+const maxCommits = computed<string>({
+  get: () => (store.scanConfig.maxCommits ? String(store.scanConfig.maxCommits) : ''),
+  set: (v) => {
+    const n = Number.parseInt(v, 10)
+    store.setScanConfig({
+      ...store.scanConfig,
+      maxCommits: Number.isFinite(n) && n > 0 ? n : null,
+    })
+  },
+})
+
+const sinceDays = computed<string>({
+  get: () => (store.scanConfig.sinceDays ? String(store.scanConfig.sinceDays) : ''),
+  set: (v) => {
+    const n = Number.parseInt(v, 10)
+    store.setScanConfig({
+      ...store.scanConfig,
+      sinceDays: Number.isFinite(n) && n > 0 ? n : null,
+    })
+  },
+})
+
 function checkerEnabled(id: string): boolean {
   // 空列表 = 全部启用：任一开关缺失时按启用展示，保持 UI 与后端口径一致。
   const list = store.scanConfig.enabledCheckers
@@ -67,6 +93,18 @@ function setCheckerEnabled(id: string, on: boolean) {
       <input id="zombie-days" type="number" min="1" step="1" v-model.number="zombieDays" />
       <span class="dim">{{ t('config.zombieDaysUnit') }}</span>
     </div>
+    <div class="config-subtitle">{{ t('config.historyScope') }}</div>
+    <div class="config-row">
+      <label for="max-commits">{{ t('config.maxCommits') }}</label>
+      <input id="max-commits" type="number" min="1" step="1" placeholder="∞" v-model="maxCommits" />
+      <span class="dim">{{ t('config.maxCommitsUnit') }}</span>
+    </div>
+    <div class="config-row">
+      <label for="since-days">{{ t('config.sinceDays') }}</label>
+      <input id="since-days" type="number" min="1" step="1" placeholder="∞" v-model="sinceDays" />
+      <span class="dim">{{ t('config.sinceDaysUnit') }}</span>
+    </div>
+    <p class="dim hint">{{ t('config.scopeHint') }}</p>
     <p class="dim hint">{{ t('config.hint') }}</p>
     <p class="dim hint">
       {{ t('config.ignoreHint') }} <code>.repobalance-ignore</code> {{ t('config.ignoreHint2') }}
@@ -119,6 +157,14 @@ code {
   border-radius: 4px;
   font-family: "SF Mono", Menlo, monospace;
   font-size: 12px;
+}
+.config-subtitle {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
 }
 .hint {
   margin-top: 14px;

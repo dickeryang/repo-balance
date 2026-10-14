@@ -1,15 +1,24 @@
-//! 依赖健康检查器 · 轻量版（Deps 维度）：仅结构检查，不做版本解析与漏洞匹配。
+//! 依赖健康检查器（Deps 维度）：结构检查 + 已知漏洞匹配。
 //!
-//! 规则：锁定文件缺失、锁定文件未提交、锁定文件被删（manifest 与 lock 不同步）、
-//! 同生态多包管理器混用。漏洞库（OSV）见路线图中期任务。
+//! 结构规则：锁定文件缺失、锁定文件未提交、锁定文件被删（manifest 与 lock 不同步）、
+//! 同生态多包管理器混用。
 //!
-//! 纯计算：消费 `DependencyFiles` 切片（引擎采集清单/锁定文件元数据）。
+//! 漏洞规则：解析各依赖文件的（包名, 版本），与注入的离线漏洞库索引做版本匹配。
+//! **未接入漏洞库时该规则不产出任何结论**（`ctx.vuln_index()` 为 None），
+//! 维度得分与接入前完全一致——即这项能力是「可选增强」而非「必备依赖」。
+//!
+//! 纯计算：消费 `DependencyFiles` 切片（元数据）与 `DependencyFileContents` 切片（内容）。
+
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 
 use crate::checker::context::SliceData;
 use crate::checker::plan::DataSlice;
 use crate::checker::{Checker, ScanContext, ScanPlan};
 use crate::model::finding::{Category, Finding, Severity};
 use crate::model::slice_meta::{DepFileKind, DepFileMeta, Ecosystem};
+use crate::model::vuln::{Advisory, VulnEcosystem};
+use crate::vuln::manifest::{parse_dep_file, ParsedDep};
 
 /// 依赖健康检查器：无状态、纯计算。
 pub struct DepsHealthChecker;
@@ -23,14 +32,19 @@ impl Checker for DepsHealthChecker {
         Category::Deps
     }
 
-    /// 幂等声明依赖清单切片。
-    fn plan(&self, _ctx: &ScanContext) -> ScanPlan {
+    /// 声明依赖清单切片；仅在接入漏洞库时追加内容切片。
+    ///
+    /// 内容切片的采集有 I/O 成本，未接入漏洞库时不会有人消费它，故按需声明。
+    fn plan(&self, ctx: &ScanContext) -> ScanPlan {
         let mut plan = ScanPlan::new();
         plan.push(DataSlice::DependencyFiles);
+        if ctx.vuln_index().is_some() {
+            plan.push(DataSlice::DependencyFileContents);
+        }
         plan
     }
 
-    /// 结构检查四类规则；切片未就绪时防御性返回空。
+    /// 结构检查四类规则 + 漏洞匹配；切片未就绪时防御性返回空。
     fn check(&self, ctx: &ScanContext) -> Vec<Finding> {
         let Some(SliceData::DependencyFiles(deps)) = ctx.slice(&DataSlice::DependencyFiles) else {
             return Vec::new();
@@ -82,8 +96,108 @@ impl Checker for DepsHealthChecker {
                 _ => {}
             }
         }
+
+        // 规则五：已知漏洞匹配（需漏洞库 + 依赖文件内容，缺一不产出结论）。
+        findings.extend(vuln_findings(ctx));
+
         findings.sort_by(|a, b| a.id.cmp(&b.id));
         findings
+    }
+}
+
+/// 漏洞匹配结论：逐个依赖文件解析（包名, 版本），命中索引即产出一条 finding。
+///
+/// 无漏洞库或无内容切片时返回空——这项能力是可选增强，不得影响结构检查结论。
+fn vuln_findings(ctx: &ScanContext) -> Vec<Finding> {
+    let (Some(index), Some(SliceData::DependencyFileContents(files))) = (
+        ctx.vuln_index(),
+        ctx.slice(&DataSlice::DependencyFileContents),
+    ) else {
+        return Vec::new();
+    };
+
+    // 去重口径是「公告 + 包名」，不含版本：
+    // - 同一依赖常同时出现在清单与锁定文件（package.json + package-lock.json），
+    //   版本写法还不同（"^4.17.20" vs "4.17.20"），按版本去重会漏掉；
+    // - 锁定文件里同一包也可能有多版本共存（传递依赖），逐版本产出会产生
+    //   重复 finding id，污染历史对比与界面展开状态。
+    // 因此按「公告 + 包名」只产出一个结论，版本优先采信锁定文件（实际安装版本）。
+    let mut hits: HashMap<String, VulnHit<'_>> = HashMap::new();
+    for file in files {
+        let Some(eco) = VulnEcosystem::from_ecosystem(file.ecosystem) else {
+            continue; // 该生态未收录索引（Ruby / PHP）
+        };
+        for dep in parse_dep_file(&file.path, file.content.as_deref(), file.ecosystem) {
+            for advisory in index.matches(eco, &dep.name, &dep.version) {
+                let key = format!("{}|{}", advisory.id, dep.name);
+                let candidate = VulnHit {
+                    advisory,
+                    dep: dep.clone(),
+                    path: &file.path,
+                    is_lock: file.kind == DepFileKind::Lock,
+                };
+                match hits.entry(key) {
+                    Entry::Vacant(e) => {
+                        e.insert(candidate);
+                    }
+                    Entry::Occupied(mut e) => {
+                        if candidate.is_lock && !e.get().is_lock {
+                            e.insert(candidate);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut findings: Vec<Finding> = hits
+        .values()
+        .map(|h| vuln_finding(h.path, &h.dep, h.advisory))
+        .collect();
+    findings.sort_by(|a, b| a.id.cmp(&b.id));
+    findings
+}
+
+/// 漏洞匹配的中间结果（用于跨文件去重）。
+struct VulnHit<'a> {
+    advisory: &'a Advisory,
+    dep: ParsedDep,
+    path: &'a str,
+    /// 是否来自锁定文件（去重时优先）。
+    is_lock: bool,
+}
+
+/// 单条漏洞结论（id 含包名与公告 id，便于去重与历史对比）。
+fn vuln_finding(path: &str, dep: &ParsedDep, advisory: &Advisory) -> Finding {
+    let severity = advisory.severity();
+    let ranges: Vec<String> = advisory.ranges.iter().map(|r| r.describe()).collect();
+    let range_text = if ranges.is_empty() {
+        "全部版本".to_owned()
+    } else {
+        ranges.join(" 或 ")
+    };
+    let summary = if advisory.summary.is_empty() {
+        "（上游公告未提供摘要）"
+    } else {
+        &advisory.summary
+    };
+    Finding {
+        id: format!("deps-health.vuln:{}:{}", advisory.id, dep.name),
+        severity,
+        category: Category::Deps,
+        title: format!(
+            "依赖存在已知漏洞: {} {}（{}）",
+            dep.name, dep.version, advisory.id
+        ),
+        evidence: format!(
+            "文件: {}\n包: {} {}\n公告: {}\n受影响区间: {}\n摘要: {}",
+            path, dep.name, dep.version, advisory.id, range_text, summary
+        ),
+        suggestion: format!(
+            "升级 {} 到不受影响版本（受影响区间 {}），随后重新生成锁定文件并提交；\
+             若暂时无法升级，请评估该漏洞在本项目中的实际可达性并记录豁免理由",
+            dep.name, range_text
+        ),
     }
 }
 
@@ -653,5 +767,343 @@ mod tests {
         registry.register(Box::new(DepsHealthChecker)).unwrap();
         let report = scan(t.path(), &registry).unwrap();
         assert!(report.findings.is_empty());
+    }
+
+    // ===== 规则五：已知漏洞匹配 =====
+
+    use crate::model::slice_meta::DepFileContent;
+    use crate::model::vuln::{Advisory, VulnEcosystem, VulnIndex, VulnRange};
+    use std::sync::Arc;
+
+    /// 构造一个含漏洞库与依赖文件内容的上下文。
+    fn vuln_ctx<'a>(
+        snapshot: &'a RepoSnapshot,
+        config: &'a ScanConfig,
+        deps: Vec<DepFileMeta>,
+        files: Vec<DepFileContent>,
+    ) -> ScanContext<'a> {
+        let mut ctx = ctx_with(snapshot, config, deps);
+        ctx.insert_slice(
+            DataSlice::DependencyFileContents,
+            SliceData::DependencyFileContents(files),
+        );
+        ctx
+    }
+
+    fn adv(id: &str, eco: VulnEcosystem, pkg: &str, introduced: &str, fixed: &str) -> Advisory {
+        Advisory {
+            id: id.into(),
+            eco,
+            pkg: pkg.into(),
+            ranges: vec![VulnRange {
+                introduced: Some(introduced.into()),
+                fixed: Some(fixed.into()),
+                last_affected: None,
+            }],
+            sev: Some(Severity::Critical),
+            summary: "Prototype pollution".into(),
+        }
+    }
+
+    fn content(path: &str, eco: Ecosystem, text: &str) -> DepFileContent {
+        DepFileContent {
+            path: path.into(),
+            ecosystem: eco,
+            kind: DepFileKind::Lock,
+            content: Some(text.into()),
+        }
+    }
+
+    /// 带漏洞库的配置（构造时即赋值，避免 default 后再改字段）。
+    fn config_with(entries: Vec<Advisory>) -> ScanConfig {
+        ScanConfig {
+            vuln_index: Some(Arc::new(VulnIndex::new(entries))),
+            ..Default::default()
+        }
+    }
+
+    /// 命中：Cargo.lock 中的 serde 1.0.50 落在公告区间内 → Critical。
+    #[test]
+    fn 漏洞_命中版本产出Critical结论() {
+        let snap = zero_snapshot();
+        let config = config_with(vec![adv(
+            "RUSTSEC-2024-0001",
+            VulnEcosystem::Cargo,
+            "serde",
+            "1.0.0",
+            "1.0.100",
+        )]);
+        let ctx = vuln_ctx(
+            &snap,
+            &config,
+            vec![dep(
+                "Cargo.lock",
+                Ecosystem::Rust,
+                DepFileKind::Lock,
+                true,
+                true,
+            )],
+            vec![content(
+                "Cargo.lock",
+                Ecosystem::Rust,
+                "[[package]]\nname = \"serde\"\nversion = \"1.0.50\"\n",
+            )],
+        );
+        let findings = DepsHealthChecker.check(&ctx);
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(findings[0].id, "deps-health.vuln:RUSTSEC-2024-0001:serde");
+        assert_eq!(findings[0].severity, Severity::Critical);
+        assert_eq!(findings[0].category, Category::Deps);
+        assert!(
+            findings[0].title.contains("serde 1.0.50"),
+            "{}",
+            findings[0].title
+        );
+        assert!(findings[0]
+            .evidence
+            .contains("受影响区间: [1.0.0, 1.0.100)"));
+        assert!(
+            findings[0].suggestion.contains("升级 serde"),
+            "建议应可执行"
+        );
+    }
+
+    /// 不命中：已修复版本（1.0.100）不产出结论。
+    #[test]
+    fn 漏洞_已修复版本不产出结论() {
+        let snap = zero_snapshot();
+        let config = config_with(vec![adv(
+            "RUSTSEC-2024-0001",
+            VulnEcosystem::Cargo,
+            "serde",
+            "1.0.0",
+            "1.0.100",
+        )]);
+        let ctx = vuln_ctx(
+            &snap,
+            &config,
+            vec![dep(
+                "Cargo.lock",
+                Ecosystem::Rust,
+                DepFileKind::Lock,
+                true,
+                true,
+            )],
+            vec![content(
+                "Cargo.lock",
+                Ecosystem::Rust,
+                "[[package]]\nname = \"serde\"\nversion = \"1.0.100\"\n",
+            )],
+        );
+        assert!(DepsHealthChecker.check(&ctx).is_empty());
+    }
+
+    /// 生态隔离：npm 公告不得命中 Rust 同名包。
+    #[test]
+    fn 漏洞_生态不隔离会误报() {
+        let snap = zero_snapshot();
+        let config = config_with(vec![adv(
+            "GHSA-npm-1",
+            VulnEcosystem::Npm,
+            "serde",
+            "0",
+            "99",
+        )]);
+        let ctx = vuln_ctx(
+            &snap,
+            &config,
+            vec![dep(
+                "Cargo.lock",
+                Ecosystem::Rust,
+                DepFileKind::Lock,
+                true,
+                true,
+            )],
+            vec![content(
+                "Cargo.lock",
+                Ecosystem::Rust,
+                "[[package]]\nname = \"serde\"\nversion = \"1.0.50\"\n",
+            )],
+        );
+        assert!(DepsHealthChecker.check(&ctx).is_empty(), "跨生态不得命中");
+    }
+
+    /// 无漏洞库：即使有内容切片也不产出任何漏洞结论（可选增强不降级为必报）。
+    #[test]
+    fn 漏洞_无漏洞库时不产出结论() {
+        let snap = zero_snapshot();
+        let config = ScanConfig::default();
+        let ctx = vuln_ctx(
+            &snap,
+            &config,
+            vec![dep(
+                "Cargo.lock",
+                Ecosystem::Rust,
+                DepFileKind::Lock,
+                true,
+                true,
+            )],
+            vec![content(
+                "Cargo.lock",
+                Ecosystem::Rust,
+                "[[package]]\nname = \"serde\"\nversion = \"1.0.50\"\n",
+            )],
+        );
+        assert!(DepsHealthChecker.check(&ctx).is_empty());
+    }
+
+    /// plan 契约：未接入漏洞库时不请求内容切片（省掉一次依赖文件读取）。
+    #[test]
+    fn 漏洞_plan按需请求内容切片() {
+        let snap = zero_snapshot();
+        let plain = ScanConfig::default();
+        let ctx = ScanContext::base(&snap, &plain);
+        let slices = DepsHealthChecker.plan(&ctx).slices().to_vec();
+        assert_eq!(slices, vec![DataSlice::DependencyFiles]);
+
+        let with_db = config_with(vec![]);
+        let ctx = ScanContext::base(&snap, &with_db);
+        let slices = DepsHealthChecker.plan(&ctx).slices().to_vec();
+        assert_eq!(
+            slices,
+            vec![
+                DataSlice::DependencyFiles,
+                DataSlice::DependencyFileContents
+            ]
+        );
+    }
+
+    /// 内容缺失（超预算 / 二进制）时不产出结论，且不 panic。
+    #[test]
+    fn 漏洞_内容缺失不panic() {
+        let snap = zero_snapshot();
+        let config = config_with(vec![adv(
+            "GHSA-1",
+            VulnEcosystem::Cargo,
+            "serde",
+            "0",
+            "99",
+        )]);
+        let ctx = vuln_ctx(
+            &snap,
+            &config,
+            vec![dep(
+                "Cargo.lock",
+                Ecosystem::Rust,
+                DepFileKind::Lock,
+                true,
+                true,
+            )],
+            vec![DepFileContent {
+                path: "Cargo.lock".into(),
+                ecosystem: Ecosystem::Rust,
+                kind: DepFileKind::Lock,
+                content: None,
+            }],
+        );
+        assert!(DepsHealthChecker.check(&ctx).is_empty());
+    }
+
+    /// 同一公告 + 同一包在清单与锁定文件中版本写法不同时只产出一个结论，
+    /// 且采用锁定文件的实际安装版本（去重口径不含版本）。
+    #[test]
+    fn 漏洞_清单与锁定版本写法不同时只产出一个结论() {
+        let snap = zero_snapshot();
+        let config = config_with(vec![adv(
+            "GHSA-1",
+            VulnEcosystem::Npm,
+            "lodash",
+            "0",
+            "4.17.21",
+        )]);
+        let ctx = vuln_ctx(
+            &snap,
+            &config,
+            vec![
+                dep(
+                    "package.json",
+                    Ecosystem::JavaScript,
+                    DepFileKind::Manifest,
+                    true,
+                    true,
+                ),
+                dep(
+                    "package-lock.json",
+                    Ecosystem::JavaScript,
+                    DepFileKind::Lock,
+                    true,
+                    true,
+                ),
+            ],
+            vec![
+                DepFileContent {
+                    path: "package-lock.json".into(),
+                    ecosystem: Ecosystem::JavaScript,
+                    kind: DepFileKind::Lock,
+                    content: Some(r#"{"dependencies":{"lodash":{"version":"4.17.20"}}}"#.into()),
+                },
+                DepFileContent {
+                    path: "package.json".into(),
+                    ecosystem: Ecosystem::JavaScript,
+                    kind: DepFileKind::Manifest,
+                    content: Some(r#"{"dependencies":{"lodash":"^4.17.20"}}"#.into()),
+                },
+            ],
+        );
+        let findings = DepsHealthChecker.check(&ctx);
+        assert_eq!(findings.len(), 1, "去重后应只剩一条: {findings:?}");
+        assert_eq!(findings[0].id, "deps-health.vuln:GHSA-1:lodash");
+        assert!(
+            findings[0].title.contains("4.17.20"),
+            "{}",
+            findings[0].title
+        );
+    }
+
+    /// 端到端：接入漏洞库后，依赖维度的漏洞结论参与评分（Critical −15）。
+    #[test]
+    fn 端到端_漏洞结论参与评分() {
+        let mut t = TestRepo::init();
+        t.commit(
+            &[
+                ("Cargo.toml", b"[package]\nname = \"x\"\n"),
+                (
+                    "Cargo.lock",
+                    b"[[package]]\nname = \"serde\"\nversion = \"1.0.50\"\n",
+                ),
+                (
+                    "package.json",
+                    b"{\"dependencies\":{\"lodash\":\"^4.17.20\"}}",
+                ),
+                (
+                    "package-lock.json",
+                    b"{\"dependencies\":{\"lodash\":{\"version\":\"4.17.20\"}}}",
+                ),
+            ],
+            "init",
+        );
+        let mut registry = CheckerRegistry::new();
+        registry.register(Box::new(DepsHealthChecker)).unwrap();
+
+        let config = config_with(vec![
+            adv(
+                "RUSTSEC-1",
+                VulnEcosystem::Cargo,
+                "serde",
+                "1.0.0",
+                "1.0.100",
+            ),
+            adv("GHSA-1", VulnEcosystem::Npm, "lodash", "0", "4.17.21"),
+        ]);
+        let report =
+            crate::engine::scan::scan_with_progress(t.path(), &registry, None, None, &config)
+                .unwrap();
+        let vulns: Vec<_> = report
+            .findings
+            .iter()
+            .filter(|f| f.id.starts_with("deps-health.vuln:"))
+            .collect();
+        assert_eq!(vulns.len(), 2, "两个生态各命中一条: {vulns:?}");
+        assert_eq!(report.scores.deps, Some(100 - 15 * 2), "两条 Critical");
     }
 }

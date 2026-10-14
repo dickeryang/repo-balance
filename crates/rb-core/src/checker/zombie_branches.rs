@@ -281,6 +281,7 @@ mod tests {
         let config = ScanConfig {
             big_file_threshold: 1_048_576,
             zombie_branch_days: 30,
+            ..Default::default()
         };
         let ctx = ctx_with(
             &snap,
