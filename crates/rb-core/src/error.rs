@@ -26,4 +26,8 @@ pub enum RbError {
     /// 离线漏洞库索引解析失败（携带行号等定位信息）。
     #[error("漏洞库错误: {0}")]
     VulnDb(String),
+
+    /// 自定义规则非法（JSON 结构错误 / 字段缺失 / 正则无法编译 / id 重复）。
+    #[error("自定义规则错误: {0}")]
+    InvalidRule(String),
 }

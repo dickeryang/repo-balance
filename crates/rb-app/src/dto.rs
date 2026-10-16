@@ -10,6 +10,7 @@ use rb_core::model::finding::{Category, Finding, Severity};
 use rb_core::model::report::{ScanReport, Scores};
 use rb_core::model::scale::{ScaleEstimate, ScaleLevel};
 use rb_core::model::snapshot::{CommitSummary, RepoSnapshot};
+use rb_core::rules::CustomRule;
 
 /// 仓库快照 DTO（camelCase）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,7 +69,61 @@ pub struct RadarPointDto {
     pub finding_count: usize,
 }
 
-/// 扫描配置 DTO（camelCase）：用户可调整阈值、历史范围与启用检查器集合。
+/// 单条自定义规则 DTO（camelCase 镜像 [`CustomRule`]，字段语义见 `docs/custom-rules.md`）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomRuleDto {
+    /// 稳定唯一标识（`[A-Za-z0-9._-]`）。
+    pub id: String,
+    /// 结论标题。
+    pub title: String,
+    /// 严重程度。
+    pub severity: Severity,
+    /// 所属维度。
+    pub category: Category,
+    /// 匹配用正则。
+    pub pattern: String,
+    /// 路径 glob 限定；`null` = 不限路径。
+    #[serde(default)]
+    pub path_glob: Option<String>,
+    /// 是否忽略大小写。
+    #[serde(default)]
+    pub ignore_case: bool,
+    /// 可执行的中文改进建议。
+    pub suggestion: String,
+}
+
+impl From<CustomRuleDto> for CustomRule {
+    fn from(d: CustomRuleDto) -> Self {
+        Self {
+            id: d.id,
+            title: d.title,
+            severity: d.severity,
+            category: d.category,
+            pattern: d.pattern,
+            path_glob: d.path_glob.filter(|g| !g.trim().is_empty()),
+            ignore_case: d.ignore_case,
+            suggestion: d.suggestion,
+        }
+    }
+}
+
+impl From<CustomRule> for CustomRuleDto {
+    fn from(r: CustomRule) -> Self {
+        Self {
+            id: r.id,
+            title: r.title,
+            severity: r.severity,
+            category: r.category,
+            pattern: r.pattern,
+            path_glob: r.path_glob,
+            ignore_case: r.ignore_case,
+            suggestion: r.suggestion,
+        }
+    }
+}
+
+/// 扫描配置 DTO（camelCase）：用户可调整阈值、历史范围、启用检查器集合与自定义规则。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanConfigDto {
@@ -87,6 +142,9 @@ pub struct ScanConfigDto {
     /// DTO 用「天数」而非 Unix 秒：GUI 更易理解，秒级换算在命令层完成。
     #[serde(default)]
     pub since_days: Option<u64>,
+    /// 自定义规则（空列表 = 不启用自定义规则检查器）。
+    #[serde(default)]
+    pub custom_rules: Vec<CustomRuleDto>,
 }
 
 /// 规模档位 DTO（与 [`ScaleLevel`] 一一对应，序列化值 snake_case）。
@@ -136,6 +194,7 @@ impl Default for ScanConfigDto {
             enabled_checkers: ALL_CHECKER_IDS.iter().map(|s| s.to_string()).collect(),
             max_commits: None,
             since_days: None,
+            custom_rules: Vec::new(),
         }
     }
 }
@@ -163,6 +222,9 @@ impl ScanConfigDto {
 }
 
 /// 全部内置检查器 id（与 rb-core 注册顺序一致）。
+///
+/// 自定义规则检查器 `custom-rules` **不在本表**：它由「是否有规则」驱动启用，
+/// 不提供独立开关（无规则时注册它会让无规则的维度假满分）。
 pub const ALL_CHECKER_IDS: [&str; 6] = [
     "big-files",
     "secrets",
@@ -467,6 +529,63 @@ mod tests {
         let core = zero.to_core_config(1_700_000_000);
         assert_eq!(core.max_commits, None, "0 按不限处理");
         assert_eq!(core.history_since, None, "0 按不限处理");
+    }
+
+    /// 自定义规则字段为 camelCase（pathGlob / ignoreCase），枚举沿用 snake_case。
+    #[test]
+    fn 自定义规则dto_字段为_camel_case() {
+        let dto = CustomRuleDto {
+            id: "no-console".into(),
+            title: "禁用 console.log".into(),
+            severity: Severity::Warning,
+            category: Category::Structure,
+            pattern: r"console\.log".into(),
+            path_glob: Some("src/*.ts".into()),
+            ignore_case: true,
+            suggestion: "改用统一日志封装".into(),
+        };
+        let json = serde_json::to_string(&dto).unwrap();
+        assert!(json.contains("\"pathGlob\":\"src/*.ts\""), "{json}");
+        assert!(json.contains("\"ignoreCase\":true"), "{json}");
+        assert!(json.contains("\"severity\":\"warning\""), "{json}");
+        assert!(json.contains("\"category\":\"structure\""), "{json}");
+        let back: CustomRuleDto = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, dto);
+    }
+
+    /// 规则 DTO ↔ 核心规则往返等价；空白 pathGlob 归一化为「不限路径」。
+    #[test]
+    fn 自定义规则dto_转换核心规则() {
+        let dto = CustomRuleDto {
+            id: "a".into(),
+            title: "t".into(),
+            severity: Severity::Critical,
+            category: Category::Security,
+            pattern: "x".into(),
+            path_glob: Some("   ".into()),
+            ignore_case: false,
+            suggestion: "s".into(),
+        };
+        let core: rb_core::rules::CustomRule = dto.clone().into();
+        assert_eq!(core.path_glob, None, "空白路径限定按不限处理");
+        assert_eq!(core.severity, Severity::Critical);
+        let back: CustomRuleDto = core.into();
+        assert_eq!(
+            back,
+            CustomRuleDto {
+                path_glob: None,
+                ..dto
+            }
+        );
+    }
+
+    /// ScanConfigDto 默认无自定义规则（不注册 custom-rules 检查器）；旧配置缺省亦为空。
+    #[test]
+    fn scan_config_dto_默认无自定义规则() {
+        assert!(ScanConfigDto::default().custom_rules.is_empty());
+        let cfg: ScanConfigDto =
+            serde_json::from_str(r#"{"bigFileThreshold":1,"enabledCheckers":[]}"#).unwrap();
+        assert!(cfg.custom_rules.is_empty(), "旧配置缺省回退空规则集");
     }
 
     /// ScaleEstimateDto 字段为 camelCase，档位为 snake_case。

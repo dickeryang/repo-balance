@@ -67,7 +67,27 @@ export interface ProgressEvent {
   findingCount?: number | null
 }
 
-/** 扫描配置：用户可调整大文件阈值、历史范围与启用检查器集合。 */
+/** 单条自定义规则（字段语义见 docs/custom-rules.md，与后端 CustomRuleDto 一一对应）。 */
+export interface CustomRule {
+  /** 稳定唯一标识（字母数字与 . _ -）。 */
+  id: string
+  /** 结论标题。 */
+  title: string
+  /** 严重程度。 */
+  severity: Severity
+  /** 所属维度。 */
+  category: Category
+  /** 匹配用正则（线性时间匹配）。 */
+  pattern: string
+  /** 路径 glob 限定；null = 不限路径。 */
+  pathGlob: string | null
+  /** 是否忽略大小写。 */
+  ignoreCase: boolean
+  /** 可执行的中文改进建议。 */
+  suggestion: string
+}
+
+/** 扫描配置：用户可调整大文件阈值、历史范围、启用检查器集合与自定义规则。 */
 export interface ScanConfig {
   /** 大文件判定阈值（字节）。 */
   bigFileThreshold: number
@@ -79,6 +99,8 @@ export interface ScanConfig {
   maxCommits: number | null
   /** 历史时间窗（天，仅遍历最近 N 天的提交）；null = 不限。 */
   sinceDays: number | null
+  /** 自定义规则（空数组 = 不启用 custom-rules 检查器）。 */
+  customRules: CustomRule[]
 }
 
 /** 仓库规模档位（与后端 ScaleLevel 一致，snake_case）。 */

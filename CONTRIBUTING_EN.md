@@ -50,18 +50,21 @@ Checkers are pluggable; adding one takes three steps and no engine changes:
    ```rust,ignore
    fn id(&self) -> &'static str;                       // stable unique id
    fn category(&self) -> Category;                     // owning dimension
+   fn categories(&self) -> Vec<Category>;              // covered dimensions (default = [category()]; override for cross-dimension checkers)
    fn plan(&self, ctx: &ScanContext) -> ScanPlan;      // declare data slices (idempotent)
    fn check(&self, ctx: &ScanContext) -> Vec<Finding>; // pure computation, same input → same output
    ```
 
-2. Export it from `checker/mod.rs` and register it in `src/bin/rb.rs` and `crates/rb-app/src/commands.rs`; add the id to the frontend's `ALL_CHECKER_IDS`.
-3. Add tests covering the four classes: **hit / no-hit / threshold boundary / ignore rules**, following the existing `TestRepo` fixture style.
+   2. Export it from `checker/mod.rs` and register it in `src/bin/rb.rs` and `crates/rb-app/src/commands.rs`; add the id to the frontend's `ALL_CHECKER_IDS`.
+    - For a **config-driven** checker (like custom rules), do *not* add it to `ALL_CHECKER_IDS`: skip registration when there is no configuration, otherwise a dimension with nothing to check would score a fake 100.
+   3. Add tests covering the four classes: **hit / no-hit / threshold boundary / ignore rules**, following the existing `TestRepo` fixture style.
 
-Conventions:
+   Conventions:
 
-- `check` is a pure function: no clock reads, no I/O. Where "now" is needed, use the newest commit time in the repository as the reference.
-- Evidence containing secrets is **masked at construction time** — mask once, masked everywhere.
-- Dimensions without a registered checker score `None` (shown as N/A in the UI); never fabricate a full score.
+   - `check` is a pure function: no clock reads, no I/O. Where "now" is needed, use the newest commit time in the repository as the reference.
+   - Evidence containing secrets is **masked at construction time** — mask once, masked everywhere (reuse `mask_secret` across modules).
+   - Dimensions without a registered checker score `None` (shown as N/A in the UI); never fabricate a full score — cross-dimension checkers must override `categories()` truthfully.
+   - Regex work always goes through the `regex` crate (linear time, no backtracking); never hand-roll a backtracking matcher or add a new regex dependency.
 
 ## 5. Submitting a PR
 

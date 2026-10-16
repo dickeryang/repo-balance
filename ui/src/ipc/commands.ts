@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { RepoSnapshot, ScanReport, ScanConfig, ScaleEstimate } from '../types/models'
+import type { CustomRule, RepoSnapshot, ScanReport, ScanConfig, ScaleEstimate } from '../types/models'
 
 export async function selectDirectory(): Promise<string | null> {
   return invoke<string | null>('select_directory')
@@ -43,4 +43,14 @@ export async function importScanHistory(): Promise<string | null> {
 /** 导出扫描历史：弹保存对话框并写盘，返回实际路径（取消时为 null）。 */
 export async function exportScanHistory(data: string): Promise<string | null> {
   return invoke<string | null>('export_scan_history', { data })
+}
+
+/** 导入自定义规则：弹文件对话框，返回已校验的规则列表（取消时为 null）。 */
+export async function importCustomRules(): Promise<CustomRule[] | null> {
+  return invoke<CustomRule[] | null>('import_custom_rules')
+}
+
+/** 导出自定义规则：弹保存对话框并写盘，返回实际路径（取消时为 null）。 */
+export async function exportCustomRules(rules: CustomRule[]): Promise<string | null> {
+  return invoke<string | null>('export_custom_rules', { rules })
 }

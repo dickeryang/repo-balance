@@ -5,7 +5,7 @@
 ## CLI 用法
 
 ```bash
-rb scan <path> [--ci|--json|--quiet] [--max-commits N] [--since-days N] [--vuln-db FILE]
+rb scan <path> [--ci|--json|--quiet] [--max-commits N] [--since-days N] [--vuln-db FILE] [--rules FILE]
 ```
 
 ### 选项
@@ -18,6 +18,7 @@ rb scan <path> [--ci|--json|--quiet] [--max-commits N] [--since-days N] [--vuln-
 | `--max-commits N` | 只遍历最新 N 个提交（N > 0），大仓库提速 |
 | `--since-days N` | 只遍历最近 N 天的提交（N > 0），大仓库提速 |
 | `--vuln-db FILE` | 离线漏洞库索引（JSONL）；不指定则不做依赖漏洞匹配 |
+| `--rules FILE` | 自定义规则（JSON 数组）；不指定则不启用 `custom-rules` 检查器 |
 
 `--max-commits` 与 `--since-days` 可叠加，取交集。历史遍历与提交数近似线性，
 超大仓库建议限制范围以控制流水线时长：
@@ -50,6 +51,17 @@ rb scan . --ci --vuln-db ./vuln-index.jsonl
   `yarn.lock` / `go.mod` / `requirements.txt` / `pom.xml`；
 - 未指定 `--vuln-db` 时依赖维度仅做结构检查，**行为与不接入漏洞库时完全一致**（不报错、不扣分）；
 - 建议在 CI 中缓存索引文件并定期重新生成（漏洞库会持续更新）。
+
+## 自定义规则
+
+把团队规约（禁用 API、遗留标记等）作为 JSON 规则随仓库一起提交，CI 即可零配置复现：
+
+```bash
+rb scan . --ci --rules ./ci/repobalance-rules.json
+```
+
+- 规则文件不存在 / JSON 非法 / 正则无法编译一律**快速失败**（退出码 1），不做静默降级；
+- 格式与行为口径（命中聚合、样本掩码、单规则 50 文件上限）见 [`custom-rules.md`](custom-rules.md)。
 
 ### 退出码
 

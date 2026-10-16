@@ -1,16 +1,17 @@
 //! CLI 入口：
-//! `rb scan <path> [--ci|--json|--quiet] [--max-commits N] [--since-days N] [--vuln-db FILE]`
+//! `rb scan <path> [--ci|--json|--quiet] [--max-commits N] [--since-days N] [--vuln-db FILE] [--rules FILE]`
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use rb_core::checker::{
     BigFilesChecker, CheckerRegistry, CommitHabitsChecker, ConflictMarkersChecker,
-    DepsHealthChecker, SecretsChecker, ZombieBranchesChecker,
+    CustomRulesChecker, DepsHealthChecker, SecretsChecker, ZombieBranchesChecker,
 };
 use rb_core::engine::scan::scan_with_progress;
 use rb_core::git::GitRepo;
 use rb_core::model::finding::Severity;
-use rb_core::Result;
+use rb_core::rules::load_rules_json;
+use rb_core::{RbError, Result};
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
@@ -39,6 +40,8 @@ fn main() -> ExitCode {
     let mut since_days: Option<u64> = None;
     // 离线漏洞库索引路径（JSONL）；不指定时不做漏洞匹配。
     let mut vuln_db: Option<PathBuf> = None;
+    // 自定义规则文件（JSON 数组）；不指定时不启用自定义规则检查器。
+    let mut rules_file: Option<PathBuf> = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--ci" => ci = true,
@@ -85,6 +88,13 @@ fn main() -> ExitCode {
                 };
                 vuln_db = Some(PathBuf::from(raw));
             }
+            "--rules" => {
+                let Some(raw) = args.next() else {
+                    eprintln!("--rules 需要文件路径参数");
+                    return usage();
+                };
+                rules_file = Some(PathBuf::from(raw));
+            }
             other => {
                 eprintln!("未知选项: {other}");
                 return usage();
@@ -92,15 +102,16 @@ fn main() -> ExitCode {
         }
     }
 
-    match run_scan(
-        &path,
+    let options = ScanOptions {
         ci,
         json,
         quiet,
         max_commits,
         since_days,
-        vuln_db.as_deref(),
-    ) {
+        vuln_db,
+        rules_file,
+    };
+    match run_scan(&path, &options) {
         Ok(has_critical) => {
             if has_critical {
                 ExitCode::from(2)
@@ -115,20 +126,37 @@ fn main() -> ExitCode {
     }
 }
 
-/// 返回 `Ok(true)` 表示存在 Critical finding（CI 应以退出码 2 标记）。
-///
-/// `max_commits` / `since_days` 为大仓库性能闸门：非 None 时把历史遍历限制在
-/// 最新 N 个提交 / 最近 N 天内，代价是更老的历史不参与结论。
-/// `vuln_db` 为离线漏洞库索引路径；None 时依赖维度仅做结构检查。
-fn run_scan(
-    path: &Path,
+/// 命令行扫描选项（聚成结构体，避免参数列表随选项增加而膨胀）。
+struct ScanOptions {
+    /// CI 模式：简洁输出。
     ci: bool,
+    /// JSON 模式：单行机器可读输出。
     json: bool,
+    /// 静默模式：不输出详情，仅以退出码反映结果。
     quiet: bool,
+    /// 大仓库性能闸门：只遍历最新 N 个提交；None 表示不限。
     max_commits: Option<usize>,
+    /// 大仓库性能闸门：只遍历最近 N 天的提交；None 表示不限。
     since_days: Option<u64>,
-    vuln_db: Option<&Path>,
-) -> Result<bool> {
+    /// 离线漏洞库索引（JSONL）路径；None 时依赖维度仅做结构检查。
+    vuln_db: Option<PathBuf>,
+    /// 自定义规则（JSON 数组）路径；None 时不注册自定义规则检查器。
+    rules_file: Option<PathBuf>,
+}
+
+/// 返回 `Ok(true)` 表示存在 Critical finding（CI 应以退出码 2 标记）。
+fn run_scan(path: &Path, options: &ScanOptions) -> Result<bool> {
+    let ScanOptions {
+        ci,
+        json,
+        quiet,
+        max_commits,
+        since_days,
+        vuln_db,
+        rules_file,
+    } = options;
+    let (ci, json, quiet) = (*ci, *json, *quiet);
+    let (max_commits, since_days) = (*max_commits, *since_days);
     let snap = GitRepo::open(path)?.snapshot()?;
     let mut registry = CheckerRegistry::new();
     registry.register(Box::new(BigFilesChecker))?;
@@ -137,6 +165,22 @@ fn run_scan(
     registry.register(Box::new(ZombieBranchesChecker))?;
     registry.register(Box::new(CommitHabitsChecker))?;
     registry.register(Box::new(DepsHealthChecker))?;
+
+    // 自定义规则：文件读取失败 / JSON 非法 / 正则无法编译一律快速失败——
+    // 规则是用户显式配置，静默降级会让人误以为规则已生效。
+    let custom_rules = match rules_file {
+        Some(p) => {
+            let text = std::fs::read_to_string(p)
+                .map_err(|e| RbError::InvalidRule(format!("读取 {}: {e}", p.display())))?;
+            load_rules_json(&text)?
+        }
+        None => Vec::new(),
+    };
+    // 无规则不注册：否则会把「没有任何规则的维度」错误标记为已覆盖（假满分）。
+    let rules_count = custom_rules.len();
+    if !custom_rules.is_empty() {
+        registry.register(Box::new(CustomRulesChecker::new(custom_rules)?))?;
+    }
 
     let history_since = since_days.map(|d| now_secs() - d as i64 * 86_400);
     // 漏洞库缺失时不做匹配（依赖维度退化为结构检查），不因可选增强失败而中断扫描。
@@ -200,7 +244,7 @@ fn run_scan(
     }
 
     if !quiet {
-        print_human(&snap, &report, scope.as_deref());
+        print_human(&snap, &report, scope.as_deref(), rules_count);
     }
 
     Ok(critical_count > 0)
@@ -228,11 +272,15 @@ fn print_human(
     snap: &rb_core::model::snapshot::RepoSnapshot,
     report: &rb_core::model::report::ScanReport,
     scope: Option<&str>,
+    rules_count: usize,
 ) {
     if let Some(s) = scope {
         println!("  ⚠ {s}");
     }
     println!("仓衡 (rb) 仓库摘要: {}", snap.path);
+    if rules_count > 0 {
+        println!("  自定义规则: {rules_count} 条已启用");
+    }
     println!("  提交数: {}", snap.commit_count);
     println!(
         "  分支数: {} ({})",
@@ -396,6 +444,7 @@ fn usage() -> ExitCode {
     eprintln!("  --max-commits N   只遍历最新 N 个提交（大仓库提速，默认不限）");
     eprintln!("  --since-days N    只遍历最近 N 天的提交（大仓库提速，默认不限）");
     eprintln!("  --vuln-db FILE    离线漏洞库索引（JSONL）；不指定则不做漏洞匹配");
+    eprintln!("  --rules FILE      自定义规则（JSON 数组）；不指定则不启用自定义规则");
     eprintln!();
     eprintln!("退出码:");
     eprintln!("  0  无 Critical 问题");

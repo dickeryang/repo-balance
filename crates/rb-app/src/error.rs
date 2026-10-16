@@ -17,6 +17,8 @@ pub fn map_error(e: RbError) -> String {
         RbError::InvalidSlice(_) => "数据切片请求非法".to_owned(),
         // 不回显原文：其中可能含本机电文路径。
         RbError::VulnDb(_) => "离线漏洞库索引损坏，请重新生成或删除后重试".to_owned(),
+        // 规则校验消息由本地生成（含规则 id / 序号），回显以助用户定位到具体规则。
+        RbError::InvalidRule(msg) => format!("自定义规则无效: {msg}"),
     }
 }
 
@@ -50,5 +52,15 @@ mod tests {
         let msg = map_error(RbError::VulnDb("第 3 行解析失败: /Users/me/x.jsonl".into()));
         assert!(!msg.contains("/Users/me"));
         assert!(msg.contains("漏洞库"));
+    }
+
+    /// 规则错误回显规则 id（消息由本地生成，不含路径），方便用户定位。
+    #[test]
+    fn 规则错误_回显规则id() {
+        let msg = map_error(RbError::InvalidRule(
+            "规则 no-console 的正则无法编译".into(),
+        ));
+        assert!(msg.contains("自定义规则无效"));
+        assert!(msg.contains("no-console"));
     }
 }

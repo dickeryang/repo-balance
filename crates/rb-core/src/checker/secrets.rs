@@ -396,16 +396,19 @@ fn shannon_entropy(s: &str) -> f64 {
 }
 
 /// 密钥样本掩码：保留前 4 / 后 2 字符并标注总长（≤8 字符全掩码）。
-fn mask_secret(s: &str) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    match chars.len() {
+///
+/// 全 crate 共用（`secrets` 与 `custom_rules` 两处证据构造），一处掩码处处掩码；
+/// 实现按需取字符，不对超长匹配做整体分配。
+pub(crate) fn mask_secret(s: &str) -> String {
+    let n = s.chars().count();
+    match n {
         0 => "（空值）".to_owned(),
         n if n <= 8 => "*".repeat(n),
-        n => format!(
-            "{}…{}（共 {n} 字符，已掩码）",
-            chars[..4].iter().collect::<String>(),
-            chars[n - 2..].iter().collect::<String>()
-        ),
+        n => {
+            let head: String = s.chars().take(4).collect();
+            let tail: String = s.chars().skip(n - 2).collect();
+            format!("{head}…{tail}（共 {n} 字符，已掩码）")
+        }
     }
 }
 

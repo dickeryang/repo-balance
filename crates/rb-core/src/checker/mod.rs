@@ -8,6 +8,7 @@ pub mod big_files;
 pub mod commit_habits;
 pub mod conflict_markers;
 pub mod context;
+pub mod custom_rules;
 pub mod deps_health;
 pub mod noop;
 pub mod plan;
@@ -22,6 +23,7 @@ pub use big_files::BigFilesChecker;
 pub use commit_habits::CommitHabitsChecker;
 pub use conflict_markers::ConflictMarkersChecker;
 pub use context::{ScanConfig, ScanContext, SliceData};
+pub use custom_rules::CustomRulesChecker;
 pub use deps_health::DepsHealthChecker;
 pub use noop::NoopChecker;
 pub use plan::{merge_plans, DataSlice, ScanPlan};
@@ -40,7 +42,18 @@ pub trait Checker: Send + Sync {
     fn id(&self) -> &'static str;
 
     /// 所属检查维度。
+    ///
+    /// 单维度检查器只需实现本方法；跨维度检查器（如自定义规则）应同时
+    /// 覆写 [`Checker::categories`]，评分覆盖度以那份声明为准。
     fn category(&self) -> Category;
+
+    /// 本检查器覆盖的全部维度（默认仅 [`Checker::category`] 一个）。
+    ///
+    /// 评分覆盖度据此判定：声明了却从不产出的维度会让该维度「假满分」，
+    /// 因此实现必须如实声明（无规则的检查器应由注册方直接跳过注册）。
+    fn categories(&self) -> Vec<Category> {
+        vec![self.category()]
+    }
 
     /// 声明本检查器需要的数据切片。
     ///

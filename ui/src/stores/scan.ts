@@ -12,6 +12,7 @@ const DEFAULT_CONFIG: ScanConfig = {
   enabledCheckers: [...ALL_CHECKER_IDS],
   maxCommits: null,
   sinceDays: null,
+  customRules: [],
 }
 /** 旧版 localStorage 键：仅用于一次性迁移，读走后即清理。 */
 const HISTORY_KEY = 'rb-scan-history'

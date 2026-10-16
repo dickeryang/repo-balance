@@ -13,8 +13,10 @@ pub mod checker;
 pub mod engine;
 pub mod error;
 pub mod git;
+mod glob;
 pub mod ignore;
 pub mod model;
+pub mod rules;
 mod timefmt;
 pub mod vuln;
 

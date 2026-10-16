@@ -48,18 +48,21 @@ cd ui && npm run lint && npm run build   # 前端 ESLint + 构建
    ```rust,ignore
    fn id(&self) -> &'static str;                       // 稳定唯一 id
    fn category(&self) -> Category;                     // 归属维度
+   fn categories(&self) -> Vec<Category>;              // 覆盖维度（默认 = [category()]，跨维度检查器覆写）
    fn plan(&self, ctx: &ScanContext) -> ScanPlan;      // 声明数据切片（幂等）
    fn check(&self, ctx: &ScanContext) -> Vec<Finding>; // 纯计算，同输入同输出
    ```
 
-2. 在 `checker/mod.rs` 导出并在 `src/bin/rb.rs` 与 `crates/rb-app/src/commands.rs` 注册；id 同步加入前端 `ALL_CHECKER_IDS`。
-3. 补测试：覆盖 **命中 / 不命中 / 边界阈值 / 忽略规则** 四类用例，沿用中文测试名 + `TestRepo` 夹具范式。
+   2. 在 `checker/mod.rs` 导出并在 `src/bin/rb.rs` 与 `crates/rb-app/src/commands.rs` 注册；id 同步加入前端 `ALL_CHECKER_IDS`。
+    - 若检查器**由配置驱动**（如自定义规则），则不加入 `ALL_CHECKER_IDS`：无配置时不要注册它，否则会把没有规则的维度算成满分。
+   3. 补测试：覆盖 **命中 / 不命中 / 边界阈值 / 忽略规则** 四类用例，沿用中文测试名 + `TestRepo` 夹具范式。
 
-约定：
+   约定：
 
-- `check` 为纯函数，不读时钟、不做 I/O；需要「当前时间」的口径以仓库内最新提交时间为基准。
-- 涉及密钥的 evidence **构造时即掩码**，一处掩码，处处掩码。
-- 未注册检查器的维度评分为 `None`（前端显示 N/A），不得伪造满分。
+   - `check` 为纯函数，不读时钟、不做 I/O；需要「当前时间」的口径以仓库内最新提交时间为基准。
+   - 涉及密钥的 evidence **构造时即掩码**，一处掩码，处处掩码（跨模块复用 `mask_secret`）。
+   - 未注册检查器的维度评分为 `None`（前端显示 N/A），不得伪造满分；跨维度检查器必须如实覆写 `categories()`。
+   - 正则匹配一律用 `regex` crate（线性时间、无回溯），不要手写回溯式匹配或引入正则类新依赖。
 
 ## 五、提交 PR
 

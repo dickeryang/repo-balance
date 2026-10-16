@@ -128,7 +128,10 @@ pub fn scan_with_progress(
                     .workdir_file_contents(FILE_CONTENT_PER_FILE_CAP, FILE_CONTENT_TOTAL_BUDGET)?;
                 let files: Vec<_> = files
                     .into_iter()
-                    .filter(|f| !ignore.is_ignored(&f.path) && pattern_matches(pattern, &f.path))
+                    .filter(|f| {
+                        !ignore.is_ignored(&f.path)
+                            && crate::glob::matches_pattern(pattern, &f.path)
+                    })
                     .collect();
                 ctx.insert_slice(slice.clone(), SliceData::FileContents(files));
                 report_progress("workdir", 1, 1);
@@ -254,7 +257,12 @@ pub fn scan_with_progress(
     }
 
     // 评分：仅对已注册检查器覆盖的维度计分，未覆盖维度为 None（N/A）。
-    let covered: HashSet<Category> = registry.list().iter().map(|c| c.category()).collect();
+    // 覆盖度取 `categories()`：跨维度检查器（自定义规则）可声明多个维度。
+    let covered: HashSet<Category> = registry
+        .list()
+        .iter()
+        .flat_map(|c| c.categories())
+        .collect();
     let scores = compute_scores(&findings, &covered);
 
     let report = ScanReport {
@@ -268,47 +276,6 @@ pub fn scan_with_progress(
     };
     report_progress("done", 1, 1);
     Ok(report)
-}
-
-/// FileContents 切片模式匹配：`all` 匹配全部；否则按 glob 匹配完整路径或 basename。
-fn pattern_matches(pattern: &str, path: &str) -> bool {
-    if pattern == "all" {
-        return true;
-    }
-    let basename = path.rsplit('/').next().unwrap_or(path);
-    glob_match(pattern, path) || glob_match(pattern, basename)
-}
-
-/// 单串 glob 匹配（`*` 任意字符、`?` 单字符；路径分隔符不特殊处理）。
-fn glob_match(pattern: &str, text: &str) -> bool {
-    let p: Vec<char> = pattern.chars().collect();
-    let t: Vec<char> = text.chars().collect();
-    let (mut pi, mut ti) = (0usize, 0usize);
-    let (mut star_p, mut star_t) = (None::<usize>, 0usize);
-    while ti < t.len() {
-        if pi < p.len() && p[pi] == '*' {
-            star_p = Some(pi);
-            star_t = ti;
-            pi += 1;
-            continue;
-        }
-        if pi < p.len() && (p[pi] == '?' || p[pi] == t[ti]) {
-            pi += 1;
-            ti += 1;
-            continue;
-        }
-        if let Some(sp) = star_p {
-            pi = sp + 1;
-            star_t += 1;
-            ti = star_t;
-            continue;
-        }
-        return false;
-    }
-    while pi < p.len() && p[pi] == '*' {
-        pi += 1;
-    }
-    pi == p.len()
 }
 
 /// 按维度计算评分：每个 finding 按严重度扣分（Critical -15 / Warning -8 / Info -3），

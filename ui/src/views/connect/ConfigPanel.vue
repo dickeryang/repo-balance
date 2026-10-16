@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useScanStore } from '../../stores/scan'
 import { useI18n } from '../../i18n'
 import { ALL_CHECKER_IDS } from '../../types/models'
+import CustomRulesEditor from './CustomRulesEditor.vue'
 
 const store = useScanStore()
 const { t } = useI18n()
@@ -110,6 +111,7 @@ function setCheckerEnabled(id: string, on: boolean) {
     <p class="dim hint">
       {{ t('config.ignoreHint') }} <code>.repobalance-ignore</code> {{ t('config.ignoreHint2') }}
     </p>
+    <CustomRulesEditor />
   </div>
 </template>
 

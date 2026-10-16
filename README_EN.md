@@ -203,16 +203,17 @@ repo-balance/
 ├── crates/
 │   ├── rb-core/              # Checker core (zero Tauri dependency)
 │   │   ├── src/
-│   │   │   ├── checker/      # Checker trait + registry + slice plan + context + 5 built-in checkers
+│   │   │   ├── checker/      # Checker trait + registry + slice plan + context + 6 built-in checkers
 │   │   │   ├── engine/       # Scan orchestration (plan → merge → collect → check)
 │   │   │   ├── git/          # Read-only git2 facade (no type leakage)
 │   │   │   ├── model/        # Data models (RepoSnapshot / Finding / ScanReport)
+│   │   │   ├── rules.rs      # Custom rule model (validation + compile to linear-time regex)
 │   │   │   └── bin/rb.rs     # CLI entry point
 │   │   └── build.rs          # Windows advapi32 link fixup
 │   └── rb-app/              # Tauri 2 desktop shell
 │       ├── src/
 │       │   ├── main.rs       # Tauri Builder entry
-│       │   ├── commands.rs   # IPC commands (5)
+│       │   ├── commands.rs   # IPC commands (scan / history / rules / export)
 │       │   ├── dto.rs        # camelCase DTO mirror layer
 │       │   ├── error.rs      # Error mapping
 │       │   └── state.rs      # Scan state management
@@ -230,10 +231,10 @@ repo-balance/
 │   │   └── types/            # TS type mirrors
 │   ├── package.json
 │   └── vite.config.ts
-├── docs/                     # Documentation (roadmap / CI integration / demo GIFs / prototype)
+├── docs/                     # Documentation (roadmap / custom rules / CI integration / demo GIFs)
 │   ├── roadmap.md            # Authoritative roadmap (current state / goals / acceptance)
-│   ├── ci-integration.md     # CI integration guide
-│   └── prototype/            # Product prototype HTML
+│   ├── custom-rules.md       # Custom rule JSON format and behavior (Chinese)
+│   └── ci-integration.md     # CI integration guide
 ├── design/                   # Brand assets
 │   ├── icon.svg              # App icon source
 │   ├── preview.png           # 1024×1024 icon preview (usable directly as a repo avatar)
@@ -261,6 +262,8 @@ repo-balance/
 | `zombie-branches` | Branches | Merged but undeleted, inactive beyond N days (90 by default), local branches without upstream |
 | `commit-habits` | History | Oversized commits (>50 files Warning / >200 Critical), low-quality message ratio, late-night commit ratio (per commit timezone) |
 | `deps-health` | Dependencies | Missing / uncommitted / deleted lockfiles, multiple package managers in one ecosystem |
+| `conflict-markers` | Structure | Leftover `<<<<<<<` / `=======` / `>>>>>>>` markers in the worktree and in history (three false-positive guards) |
+| `custom-rules` | per rule | User-defined JSON rules (regex + path glob + severity + category); only registered when rules exist |
 
 Dimensions with no registered checker score `None` (shown as **N/A**) instead of a fake 100, and the total score averages only the covered dimensions.
 
@@ -285,6 +288,7 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 - [x] **i18n** — Chinese / English UI toggle
 - [x] **Large-repo throttle** — limit history traversal to the newest N commits / last N days (CLI `--max-commits` / `--since-days`, GUI "History Scope"); limited scans are labelled in the CLI, report page and exports
 - [x] **Scan scale estimate** — the connect view shows commits / files / size and an estimated duration (object count and duration are extrapolated from a sample); large repos get a suggested limit that can be applied in one click
+- [x] **Custom rules** — define team-specific checks in JSON (regex + path glob + severity + category + advice) and turn your own conventions into reproducible findings; managed via GUI forms with JSON import / export, and `--rules FILE` on the CLI; regex matching is linear-time, matched samples are masked, and each rule is capped at 50 file findings with an honest truncation notice (format: [`docs/custom-rules.md`](docs/custom-rules.md), Chinese)
 
 ### Next (v0.2 ~ v0.3)
 
@@ -296,7 +300,6 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 - [ ] **Remote repository checkup** — shallow-clone a URL, scan locally, clean up
 - [ ] **Bulk multi-repository checkup** — scan queue plus an aggregate dashboard for team governance
 - [ ] **Health trend analysis** — quality evolution curves from historical data
-- [ ] **Custom rules** — JSON-driven config, later evolving into a WASM sandbox plugin system
 - [ ] **Official GitHub Action**, auto-update, Homebrew / Scoop / Winget distribution
 - [ ] **Team report collaboration** — Report as Code, closing remediation items through PR review
 

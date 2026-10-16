@@ -207,12 +207,13 @@ repo-balance/
 │   │   │   ├── engine/       # 扫描编排（plan → merge → collect → check）
 │   │   │   ├── git/          # git2 只读门面（类型不逃逸）
 │   │   │   ├── model/        # 数据模型（RepoSnapshot/Finding/ScanReport）
+│   │   │   ├── rules.rs      # 自定义规则模型（校验 + 编译为线性时间正则）
 │   │   │   └── bin/rb.rs     # CLI 入口
 │   │   └── build.rs          # Windows advapi32 链接补齐
 │   └── rb-app/              # Tauri 2 桌面壳
 │       ├── src/
 │       │   ├── main.rs       # Tauri Builder 入口
-│       │   ├── commands.rs   # IPC 命令（5 条）
+│       │   ├── commands.rs   # IPC 命令（扫描 / 历史 / 规则 / 导出）
 │       │   ├── dto.rs        # camelCase DTO 镜像层
 │       │   ├── error.rs      # 错误映射
 │       │   └── state.rs      # 扫描状态管理
@@ -222,7 +223,7 @@ repo-balance/
 │       └── build.rs          # tauri-build
 ├── ui/                       # Vue 3 前端工程
 │   ├── src/
-│   │   ├── views/            # 三视图（接入/扫描/报告）
+│   │   ├── views/            # 四视图（接入/扫描/报告/历史）
 │   │   ├── components/       # 通用组件（TopBar/RadarChart）
 │   │   ├── stores/           # Pinia 状态管理
 │   │   ├── ipc/              # IPC 封装（命令+事件）
@@ -230,10 +231,10 @@ repo-balance/
 │   │   └── types/            # TS 类型镜像
 │   ├── package.json
 │   └── vite.config.ts
-├── docs/                     # 文档（路线图 / CI 集成 / 演示 GIF / 原型）
+├── docs/                     # 文档（路线图 / 自定义规则 / CI 集成 / 演示 GIF）
 │   ├── roadmap.md            # 权威路线图（现状盘点 / 阶段目标 / 验收标准）
-│   ├── ci-integration.md     # CI 接入指南
-│   └── prototype/            # 产品原型 HTML
+│   ├── custom-rules.md       # 自定义规则 JSON 格式与行为口径
+│   └── ci-integration.md     # CI 接入指南
 ├── design/                   # 品牌资产
 │   ├── icon.svg              # 应用图标源文件
 │   ├── preview.png           # 1024×1024 图标预览（可直接用作代码平台项目头像）
@@ -273,6 +274,7 @@ repo-balance/
 - [x] **国际化**：界面中英文切换（i18n）
 - [x] **大仓库性能闸门**：历史遍历支持「最多 N 个提交」/「最近 N 天」（CLI `--max-commits` / `--since-days`，GUI「历史范围」），受限扫描在 CLI、报告页与导出中如实标注
 - [x] **扫描规模预估**：连接页展示提交数 / 文件数 / 体积与预计耗时（对象数与耗时为采样外推的粗估），大仓库给出建议限制并支持一键应用
+- [x] **自定义规则**：以 JSON 定义「正则 + 路径 glob + 严重度 + 维度 + 话术」，把团队自有规约变成可复现结论；GUI 表单管理 + JSON 导入导出，CLI `--rules FILE`；正则线性时间匹配，命中样本掩码，单规则 50 文件上限并如实提示截断（格式见 [`docs/custom-rules.md`](docs/custom-rules.md)）
 
 ### 近期（v0.2 ~ v0.3）
 
@@ -284,7 +286,6 @@ repo-balance/
 - [ ] **远程仓库体检**：URL 浅克隆后本地扫描
 - [ ] **多仓库批量体检**：仓库队列 + 汇总看板，面向团队仓库治理
 - [ ] **健康度趋势分析**：基于历史数据绘制质量演进曲线
-- [ ] **自定义规则**：JSON 配置驱动，后续演进为 WASM 沙箱插件机制
 - [ ] **官方 GitHub Action**、自动更新、Homebrew / Scoop / Winget 分发
 - [ ] **团队报告协作**：Report as Code，整改项 PR 评审闭环
 

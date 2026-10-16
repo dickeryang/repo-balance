@@ -10,10 +10,11 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 
-use crate::dto::{RepoSnapshotDto, ScaleEstimateDto, ScanReportDto};
+use crate::dto::{CustomRuleDto, RepoSnapshotDto, ScaleEstimateDto, ScanReportDto};
 use crate::error::map_error;
 use crate::state::ScanState;
 use rb_core::model::vuln::VulnIndex;
+use rb_core::rules::{self, CustomRule};
 
 /// 扫描历史文件名（存放于应用数据目录）。
 const HISTORY_FILE_NAME: &str = "scan-history.json";
@@ -114,6 +115,16 @@ pub async fn start_scan(
     let path_buf = PathBuf::from(&path);
     rb_core::git::GitRepo::open(&path_buf).map_err(map_error)?;
 
+    let cfg = config.unwrap_or_default();
+    // 自定义规则：先整体校验编译再启动扫描。GUI 侧已做同样校验，这里是兜底；
+    // 规则是用户显式配置，非法就快速失败，绝不静默降级成「规则已生效」的假象。
+    let compiled_rules: Vec<rules::CompiledRule> = if cfg.custom_rules.is_empty() {
+        Vec::new()
+    } else {
+        let rules: Vec<CustomRule> = cfg.custom_rules.iter().cloned().map(Into::into).collect();
+        rules::compile_rules(&rules).map_err(|e| e.to_string())?
+    };
+
     // CAS 领取扫描权：复位取消标志并原子置位 scanning，拒绝并发扫描。
     if !state.begin_scan() {
         return Err("已有扫描正在进行，请先等待完成或取消".to_owned());
@@ -122,7 +133,6 @@ pub async fn start_scan(
     let app_handle = app.clone();
     let cancel_flag = state.cancel_flag();
     let cancel_flag_arc = cancel_flag.clone();
-    let cfg = config.unwrap_or_default();
     // 受限扫描的范围说明随报告一起推送，前端与导出据此如实标注。
     let scope_note = scope_note_of(&cfg);
 
@@ -156,6 +166,13 @@ pub async fn start_scan(
             }
             if enabled("deps-health") {
                 let _ = registry.register(Box::new(rb_core::checker::DepsHealthChecker));
+            }
+            // 自定义规则检查器由「是否有规则」驱动（不提供独立开关）：无规则时
+            // 注册它会把没有任何规则的维度错误标记为已覆盖（假满分）。
+            if !compiled_rules.is_empty() {
+                let _ = registry.register(Box::new(
+                    rb_core::checker::CustomRulesChecker::from_compiled(compiled_rules),
+                ));
             }
             let mut core_config = cfg.to_core_config(now_secs());
             // 漏洞库在壳层载入（rb-core 不做文件 I/O）；缺失/损坏时静默降级为
@@ -359,6 +376,76 @@ pub async fn export_scan_history(
         }
         None => Ok(None),
     }
+}
+
+/// 导入自定义规则：文件对话框选 JSON → 整体校验（结构 / 正则 / id 唯一）→ 返回规则列表。
+///
+/// 校验在 rb-core 侧统一完成（`load_rules_json`）：**要么全部生效、要么明确报错**，
+/// 不存在「一半规则静默生效」的中间态。
+#[tauri::command]
+pub async fn import_custom_rules(
+    app: tauri::AppHandle,
+) -> Result<Option<Vec<CustomRuleDto>>, String> {
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .pick_file(move |path| {
+            let _ = tx.send(path);
+        });
+
+    let result = rx.await.map_err(|e| e.to_string())?;
+    let Some(path) = result else {
+        return Ok(None); // 用户取消
+    };
+    let file_path = path
+        .as_path()
+        .ok_or_else(|| "无效的文件路径".to_owned())?
+        .to_path_buf();
+
+    let content = std::fs::read_to_string(&file_path).map_err(|e| format!("读取文件失败: {e}"))?;
+    let rules = rules::load_rules_json(&content).map_err(|e| e.to_string())?;
+    Ok(Some(rules.into_iter().map(CustomRuleDto::from).collect()))
+}
+
+/// 导出自定义规则：先校验（不导出不可用的规则集）→ 保存对话框 → 写盘 → 返回实际路径。
+#[tauri::command]
+pub async fn export_custom_rules(
+    app: tauri::AppHandle,
+    rules: Vec<CustomRuleDto>,
+) -> Result<Option<String>, String> {
+    let content = custom_rules_json(&rules)?;
+
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .set_file_name("repo-balance-rules.json")
+        .save_file(move |path| {
+            let _ = tx.send(path);
+        });
+
+    let result = rx.await.map_err(|e| e.to_string())?;
+    match result {
+        Some(path) => {
+            let file_path = path
+                .as_path()
+                .ok_or_else(|| "无效的保存路径".to_owned())?
+                .to_path_buf();
+            std::fs::write(&file_path, content).map_err(|e| format!("导出失败: {e}"))?;
+            Ok(Some(file_path.to_string_lossy().to_string()))
+        }
+        None => Ok(None),
+    }
+}
+
+/// 校验并序列化规则集为 JSON 文本（导出前统一走这里，保证导出内容可用）。
+///
+/// 单独抽函数便于单测——对话框本身依赖运行时，无法在测试中驱动。
+fn custom_rules_json(rules: &[CustomRuleDto]) -> Result<String, String> {
+    let core: Vec<CustomRule> = rules.iter().cloned().map(Into::into).collect();
+    rules::compile_rules(&core).map_err(|e| e.to_string())?;
+    serde_json::to_string_pretty(rules).map_err(|e| e.to_string())
 }
 
 /// 取消扫描（设置 AtomicBool 取消标志）。
@@ -747,8 +834,50 @@ footer {{ color:#8b95ab; font-size:12px; text-align:center; margin-top:32px; }}
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
-    use super::{scope_note_of, validate_history_json};
-    use crate::dto::ScanConfigDto;
+    use super::{custom_rules_json, scope_note_of, validate_history_json};
+    use crate::dto::{CustomRuleDto, ScanConfigDto};
+    use rb_core::model::finding::{Category, Severity};
+
+    /// 构造一条最小可用规则的 DTO。
+    fn rule_dto(id: &str) -> CustomRuleDto {
+        CustomRuleDto {
+            id: id.into(),
+            title: "禁用 console.log".into(),
+            severity: Severity::Warning,
+            category: Category::Structure,
+            pattern: r"console\.log".into(),
+            path_glob: None,
+            ignore_case: false,
+            suggestion: "改用统一日志封装".into(),
+        }
+    }
+
+    /// 导出前校验：合法规则集序列化为顶层数组 JSON。
+    #[test]
+    fn 规则导出_合法规则集序列化为数组() {
+        let json = custom_rules_json(&[rule_dto("no-console")]).unwrap();
+        assert!(json.trim_start().starts_with('['), "{json}");
+        assert!(json.contains("\"pathGlob\""), "{json}");
+        assert!(json.contains("no-console"), "{json}");
+    }
+
+    /// 导出前校验：非法正则 / 重复 id 的规则集被拒绝（不产出不可用文件）。
+    #[test]
+    fn 规则导出_非法规则集被拒绝() {
+        let mut bad_regex = rule_dto("bad");
+        bad_regex.pattern = "([".into();
+        let err = custom_rules_json(&[bad_regex]).unwrap_err();
+        assert!(err.contains("正则无法编译"), "{err}");
+
+        let err = custom_rules_json(&[rule_dto("dup"), rule_dto("dup")]).unwrap_err();
+        assert!(err.contains("dup"), "{err}");
+    }
+
+    /// 空规则集可导出为空数组（清空规则的备份语义）。
+    #[test]
+    fn 规则导出_空规则集合法() {
+        assert_eq!(custom_rules_json(&[]).unwrap(), "[]");
+    }
 
     /// 未限流（全部为空）不产出范围说明。
     #[test]
