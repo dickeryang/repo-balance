@@ -297,6 +297,31 @@ export const useScanStore = defineStore('scan', () => {
     }
   }
 
+  /** 远程仓库体检：URL 浅克隆到临时目录后扫描（与本地扫描共用事件流）。 */
+  async function startRemoteScan(url: string) {
+    isScanning.value = true
+    isCancelled.value = false
+    report.value = null
+    progress.value = null
+    const ids =
+      scanConfig.value.enabledCheckers.length > 0
+        ? scanConfig.value.enabledCheckers
+        : [...ALL_CHECKER_IDS]
+    checkerFeed.value = ids.map((id) => ({ checkerId: id, status: 'pending', findingCount: 0 }))
+    const token = ++scanToken
+    listenScanEvents(token)
+    setCurrentView(2)
+    try {
+      await ipc.startRemoteScan(url, 1, scanConfig.value)
+    } catch (e) {
+      if (token !== scanToken) return
+      unlistenScanEvents()
+      isScanning.value = false
+      repoError.value = String(e)
+      currentView.value = 1
+    }
+  }
+
   async function cancelScan() {
     try {
       await ipc.cancelScan()
@@ -449,6 +474,7 @@ export const useScanStore = defineStore('scan', () => {
     importHistory,
     exportHistory,
     startScan,
+    startRemoteScan,
     cancelScan,
     exportReport,
     switchRepo,

@@ -21,12 +21,13 @@ fn main() -> ExitCode {
     if cmd == "--help" || cmd == "-h" {
         return usage();
     }
-    if cmd != "scan" {
+    if cmd != "scan" && cmd != "scan-url" {
         eprintln!("未知命令: {cmd}");
         return usage();
     }
+    let is_remote = cmd == "scan-url";
     let Some(p) = args.next() else {
-        eprintln!("缺少 <path> 参数");
+        eprintln!("缺少 <path|url> 参数");
         return usage();
     };
     let path = PathBuf::from(p);
@@ -42,11 +43,30 @@ fn main() -> ExitCode {
     let mut vuln_db: Option<PathBuf> = None;
     // 自定义规则文件（JSON 数组）；不指定时不启用自定义规则检查器。
     let mut rules_file: Option<PathBuf> = None;
+    // 远程体检浅克隆深度（仅 scan-url 生效）。
+    let mut depth: i32 = rb_core::git::DEFAULT_CLONE_DEPTH;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--ci" => ci = true,
             "--json" => json = true,
             "--quiet" => quiet = true,
+            "--depth" => {
+                let Some(raw) = args.next() else {
+                    eprintln!("--depth 需要数字参数");
+                    return usage();
+                };
+                match raw.parse::<i32>() {
+                    Ok(0) => {
+                        eprintln!("--depth 必须大于 0");
+                        return usage();
+                    }
+                    Ok(n) => depth = n,
+                    Err(_) => {
+                        eprintln!("--depth 参数非法: {raw}");
+                        return usage();
+                    }
+                }
+            }
             "--max-commits" => {
                 let Some(raw) = args.next() else {
                     eprintln!("--max-commits 需要数字参数");
@@ -111,7 +131,30 @@ fn main() -> ExitCode {
         vuln_db,
         rules_file,
     };
-    match run_scan(&path, &options) {
+    let outcome = if is_remote {
+        // 远程体检：浅克隆到临时目录后复用本地扫描管线；TempDir RAII
+        // 保证扫描结束（含出错路径）后清理克隆产物，不落盘残留。
+        match tempfile::tempdir() {
+            Ok(tmp) => {
+                eprintln!("浅克隆 {} (depth={depth}) …", path.display());
+                match rb_core::git::clone_shallow(
+                    path.to_string_lossy().as_ref(),
+                    tmp.path(),
+                    depth,
+                ) {
+                    Ok(()) => {
+                        eprintln!("克隆完成，开始扫描（临时目录退出后自动清理）");
+                        run_scan(tmp.path(), &options)
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+            Err(e) => Err(rb_core::RbError::Io(e)),
+        }
+    } else {
+        run_scan(&path, &options)
+    };
+    match outcome {
         Ok(has_critical) => {
             if has_critical {
                 ExitCode::from(2)
@@ -436,6 +479,7 @@ fn json_escape(s: &str) -> String {
 /// 用法提示路径统一为非零退出码。
 fn usage() -> ExitCode {
     eprintln!("用法: rb scan <path> [选项]");
+    eprintln!("      rb scan-url <url> [选项]");
     eprintln!();
     eprintln!("选项:");
     eprintln!("  --ci              CI 模式：简洁输出，Critical 存在时退出码 2");
@@ -445,6 +489,9 @@ fn usage() -> ExitCode {
     eprintln!("  --since-days N    只遍历最近 N 天的提交（大仓库提速，默认不限）");
     eprintln!("  --vuln-db FILE    离线漏洞库索引（JSONL）；不指定则不做漏洞匹配");
     eprintln!("  --rules FILE      自定义规则（JSON 数组）；不指定则不启用自定义规则");
+    eprintln!();
+    eprintln!("scan-url 专用:");
+    eprintln!("  --depth N         浅克隆深度（默认 1，即只取最新一次提交）");
     eprintln!();
     eprintln!("退出码:");
     eprintln!("  0  无 Critical 问题");

@@ -17,6 +17,11 @@ export async function startScan(path: string, config: ScanConfig): Promise<void>
   return invoke<void>('start_scan', { path, config })
 }
 
+/** 远程仓库体检：URL 浅克隆到临时目录后完整扫描（后端自动清理）。 */
+export async function startRemoteScan(url: string, depth: number, config: ScanConfig): Promise<void> {
+  return invoke<void>('start_remote_scan', { url, depth, config })
+}
+
 export async function cancelScan(): Promise<void> {
   return invoke<void>('cancel_scan')
 }

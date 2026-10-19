@@ -102,6 +102,14 @@ fn estimate_percent(stage: &str, done: usize, total: usize) -> u8 {
     }
 }
 
+/// 扫描来源：本地路径，或远程 URL（浅克隆到临时目录后扫描）。
+pub enum ScanSource {
+    /// 本地磁盘上的仓库路径。
+    Local(PathBuf),
+    /// 远程仓库 URL 与浅克隆深度。
+    Remote { url: String, depth: i32 },
+}
+
 /// 启动扫描：异步包装同步 scan（spawn_blocking 避免占死 tokio worker），
 /// 完成后 emit scan-done；失败 emit scan-error（与用户取消事件分离）。
 /// `config` 为 `None` 时使用默认配置（大文件阈值 1 MiB、启用 big-files）。
@@ -114,7 +122,36 @@ pub async fn start_scan(
 ) -> Result<(), String> {
     let path_buf = PathBuf::from(&path);
     rb_core::git::GitRepo::open(&path_buf).map_err(map_error)?;
+    launch_scan(app, state, ScanSource::Local(path_buf), config).await
+}
 
+/// 远程仓库体检：URL 浅克隆到临时目录 → 完整扫描 → 临时目录自动清理。
+///
+/// 报告内的 `repo_path` 以 URL 为准——临时目录是实现细节，不应出现在
+/// 报告页与扫描历史中。
+#[tauri::command]
+pub async fn start_remote_scan(
+    app: tauri::AppHandle,
+    state: State<'_, ScanState>,
+    url: String,
+    depth: Option<i32>,
+    config: Option<crate::dto::ScanConfigDto>,
+) -> Result<(), String> {
+    let url = url.trim().to_owned();
+    if url.is_empty() {
+        return Err("仓库 URL 不能为空".to_owned());
+    }
+    launch_scan(app, state, ScanSource::Remote { url, depth: depth.unwrap_or(1) }, config).await
+}
+
+/// 本地与远程扫描共用的启动流程：规则校验 → CAS 领取扫描权 →
+/// spawn_blocking 内解析来源（远程先浅克隆）→ 引擎扫描 → 事件推送。
+async fn launch_scan(
+    app: tauri::AppHandle,
+    state: State<'_, ScanState>,
+    source: ScanSource,
+    config: Option<crate::dto::ScanConfigDto>,
+) -> Result<(), String> {
     let cfg = config.unwrap_or_default();
     // 自定义规则：先整体校验编译再启动扫描。GUI 侧已做同样校验，这里是兜底；
     // 规则是用户显式配置，非法就快速失败，绝不静默降级成「规则已生效」的假象。
@@ -178,13 +215,32 @@ pub async fn start_scan(
             // 漏洞库在壳层载入（rb-core 不做文件 I/O）；缺失/损坏时静默降级为
             // 「不做漏洞匹配」，不因可选增强失败而中断扫描。
             core_config.vuln_index = load_vuln_index(&app);
-            rb_core::engine::scan::scan_with_progress(
-                &path_buf,
-                &registry,
-                Some(cancel_flag_arc.as_ref()),
-                Some(&progress_cb as &dyn Fn(rb_core::engine::scan::ScanProgress)),
-                &core_config,
-            )
+            match &source {
+                ScanSource::Local(path_buf) => rb_core::engine::scan::scan_with_progress(
+                    path_buf,
+                    &registry,
+                    Some(cancel_flag_arc.as_ref()),
+                    Some(&progress_cb as &dyn Fn(rb_core::engine::scan::ScanProgress)),
+                    &core_config,
+                ),
+                ScanSource::Remote { url, depth } => {
+                    // 远程来源：临时目录 RAII 保证扫描结束（含出错路径）后
+                    // 清理克隆产物；报告内 repo_path 覆写为 URL——临时目录
+                    // 是实现细节，不应出现在报告页与扫描历史里。
+                    let tmp = tempfile::tempdir().map_err(rb_core::RbError::Io)?;
+                    eprintln!("浅克隆 {url} (depth={depth}) …");
+                    rb_core::git::clone_shallow(url, tmp.path(), *depth)?;
+                    let mut report = rb_core::engine::scan::scan_with_progress(
+                        tmp.path(),
+                        &registry,
+                        Some(cancel_flag_arc.as_ref()),
+                        Some(&progress_cb as &dyn Fn(rb_core::engine::scan::ScanProgress)),
+                        &core_config,
+                    )?;
+                    report.repo_path = url.clone();
+                    Ok(report)
+                }
+            }
         })
         .await;
 
