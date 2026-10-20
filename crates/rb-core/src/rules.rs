@@ -18,6 +18,9 @@ use crate::Result;
 /// 规则 id 长度上限（id 会进入 finding id，需稳定且可读）。
 const RULE_ID_MAX: usize = 64;
 
+/// 单个文件内最多保留的匹配偏移数（超出只计数、不存储，防止偏移数组膨胀）。
+const MAX_OFFSETS_PER_FILE: usize = 4096;
+
 /// 正则长度上限：防御超长规则带来的编译开销。
 const PATTERN_MAX: usize = 1024;
 
@@ -170,9 +173,22 @@ impl CompiledRule {
         }
     }
 
-    /// 在文本中查找全部匹配的字节偏移（按出现顺序，线性时间）。
-    pub fn find_offsets(&self, text: &str) -> Vec<usize> {
-        self.regex.find_iter(text).map(|m| m.start()).collect()
+    /// 在文本中查找匹配偏移（按出现顺序，线性时间）。
+    ///
+    /// 返回 `(偏移量, 命中总数)`：偏移量最多保留 [`MAX_OFFSETS_PER_FILE`] 个，
+    /// 超出部分**只计数不存储**——像 `x*` 这类几乎逐字节命中的正则会让偏移
+    /// 数组随文件体积线性膨胀（1 MiB 文件可达百万级 usize），而结论证据只需要
+    /// 前若干处行号；命中总数始终真实，不做截断。
+    pub fn find_offsets(&self, text: &str) -> (Vec<usize>, usize) {
+        let mut offsets = Vec::new();
+        let mut total = 0usize;
+        for m in self.regex.find_iter(text) {
+            total += 1;
+            if offsets.len() < MAX_OFFSETS_PER_FILE {
+                offsets.push(m.start());
+            }
+        }
+        (offsets, total)
     }
 }
 
@@ -228,14 +244,31 @@ mod tests {
     fn 合法规则_编译后可匹配() {
         let compiled = rule("no-console").compile().unwrap();
         assert!(compiled.path_allowed("src/main.rs"), "未限定路径时恒适用");
-        assert_eq!(compiled.find_offsets("a\nconsole.log(1)").len(), 1);
+        assert_eq!(compiled.find_offsets("a\nconsole.log(1)").0.len(), 1);
         assert_eq!(
             compiled
                 .find_offsets("console.log(1); console.log(2)")
+                .0
                 .len(),
             2
         );
-        assert!(compiled.find_offsets("println!(\"hi\")").is_empty());
+        assert!(compiled.find_offsets("println!(\"hi\")").0.is_empty());
+    }
+
+    /// 边界：海量命中时偏移数组受上限约束，但命中总数保持真实。
+    #[test]
+    fn 海量命中_偏移受上限约束且总数真实() {
+        let mut r = rule("many");
+        r.pattern = "x*".into();
+        let compiled = r.compile().unwrap();
+        let text = "abc".repeat(3000);
+        let (offsets, total) = compiled.find_offsets(&text);
+        assert_eq!(total, text.len() + 1, "命中总数不截断");
+        assert!(
+            offsets.len() <= MAX_OFFSETS_PER_FILE,
+            "偏移不得超过上限: {}",
+            offsets.len()
+        );
     }
 
     /// 不命中用例：路径 glob 限定生效，目录外文件跳过。
@@ -269,12 +302,12 @@ mod tests {
         r.pattern = "TODO".into();
         r.ignore_case = true;
         let compiled = r.compile().unwrap();
-        assert_eq!(compiled.find_offsets("todo").len(), 1);
+        assert_eq!(compiled.find_offsets("todo").0.len(), 1);
 
         let mut strict = rule("todo-upper");
         strict.pattern = "TODO".into();
         let compiled = strict.compile().unwrap();
-        assert!(compiled.find_offsets("todo").is_empty());
+        assert!(compiled.find_offsets("todo").0.is_empty());
     }
 
     /// 边界：id 校验（空白 / 非法字符 / 超长）全部拒绝。

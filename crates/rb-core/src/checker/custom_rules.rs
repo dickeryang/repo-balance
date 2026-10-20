@@ -108,13 +108,14 @@ impl Checker for CustomRulesChecker {
                 let Some(content) = file.content.as_deref() else {
                     continue;
                 };
-                let offsets = compiled.find_offsets(content);
-                if offsets.is_empty() {
+                // 命中总数为真实值；偏移只保留前若干处（见 find_offsets 的上限说明）。
+                let (offsets, hits) = compiled.find_offsets(content);
+                if hits == 0 {
                     continue;
                 }
                 matched_files += 1;
                 if matched_files <= MAX_FINDINGS_PER_RULE {
-                    findings.push(file_finding(compiled, &file.path, content, &offsets));
+                    findings.push(file_finding(compiled, &file.path, content, &offsets, hits));
                 }
             }
             if matched_files > MAX_FINDINGS_PER_RULE {
@@ -126,14 +127,26 @@ impl Checker for CustomRulesChecker {
 }
 
 /// 单文件命中结论：id / 严重度 / 维度 / 标题 / 建议取自规则，证据为该文件的命中摘要。
-fn file_finding(compiled: &CompiledRule, path: &str, content: &str, offsets: &[usize]) -> Finding {
+///
+/// `hits` 为该文件的真实命中总数（`offsets` 可能只保留前若干处），证据里的
+/// 「命中 N 处」必须如实反映总数，不能因为行号被截断而缩水。
+fn file_finding(
+    compiled: &CompiledRule,
+    path: &str,
+    content: &str,
+    offsets: &[usize],
+    hits: usize,
+) -> Finding {
     let rule = compiled.rule();
-    let lines: Vec<usize> = offsets
+    // 同一行多处命中只列一次行号（否则会出现「行 1, 1, 1」这类噪音）。
+    let mut lines: Vec<usize> = offsets
         .iter()
         .take(MAX_LINES)
         .map(|&off| line_number_at(content, off))
         .collect();
-    let more = if offsets.len() > MAX_LINES { "…" } else { "" };
+    lines.sort_unstable();
+    lines.dedup();
+    let more = if hits > MAX_LINES { "…" } else { "" };
     let line_text = lines
         .iter()
         .map(|n| n.to_string())
@@ -152,10 +165,7 @@ fn file_finding(compiled: &CompiledRule, path: &str, content: &str, offsets: &[u
         severity: rule.severity,
         category: rule.category,
         title: rule.title.clone(),
-        evidence: format!(
-            "文件: {path}\n命中: {} 处（行 {line_text}{more}）\n样例: {sample}",
-            offsets.len()
-        ),
+        evidence: format!("文件: {path}\n命中: {hits} 处（行 {line_text}{more}）\n样例: {sample}"),
         suggestion: rule.suggestion.clone(),
     }
 }
@@ -367,6 +377,23 @@ mod tests {
                 .contains(&format!("共命中 {}", MAX_FINDINGS_PER_RULE + 3)),
             "{}",
             last.evidence
+        );
+    }
+
+    /// 边界：命中总数远超行号上限时，证据里的「命中 N 处」仍是真实总数。
+    #[test]
+    fn 边界_海量命中时总数仍真实() {
+        let checker = CustomRulesChecker::new(vec![rule("many", "x*")]).unwrap();
+        let snap = zero_snapshot();
+        let config = ScanConfig::default();
+        // x* 在 9 字节文本上命中 10 处（含末尾空匹配），偏移受上限约束但总数不缩水。
+        let ctx = ctx_with_content(&snap, &config, vec![("a.txt", Some("abcabcabc"))]);
+        let findings = checker.check(&ctx);
+        assert_eq!(findings.len(), 1);
+        assert!(
+            findings[0].evidence.contains("命中: 10 处"),
+            "{}",
+            findings[0].evidence
         );
     }
 

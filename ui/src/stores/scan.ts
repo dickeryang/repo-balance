@@ -343,7 +343,7 @@ export const useScanStore = defineStore('scan', () => {
         }
         report.value = r
         isCancelled.value = r.cancelled
-        if (!r.cancelled) saveToHistory(r)
+        if (!r.cancelled) void saveToHistory(r)
         currentView.value = 3
       }),
       // scan-progress：更新进度；check 阶段按 checkerId 维护检查器 feed
@@ -529,7 +529,8 @@ export const useScanStore = defineStore('scan', () => {
       item.findingCount = result.findings.length
       item.criticalCount = result.findings.filter((f) => f.severity === 'critical').length
       item.report = result
-      saveToHistory(result)
+      // 串行写盘：避免整批多次写入乱序完成导致历史文件回退
+      await saveToHistory(result)
     }
 
     // 取消后把仍处于等待态的仓库统一标记为跳过（与队列现状一致）。
@@ -658,7 +659,13 @@ export const useScanStore = defineStore('scan', () => {
   }
 
   /** 将完成的扫描报告保存到历史列表（最多保留 HISTORY_MAX 条）。 */
-  function saveToHistory(r: ScanReport) {
+  /**
+   * 把扫描结果写入历史并持久化（返回写盘的 promise）。
+   *
+   * 批量扫描必须 `await` 本方法：整批会连续写入多次，不 await 时多个
+   * `saveScanHistory` 可能并发落盘并乱序完成，文件里留下旧快照（历史回退）。
+   */
+  async function saveToHistory(r: ScanReport) {
     const entry: HistoryEntry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       savedAt: Date.now(),
@@ -670,7 +677,7 @@ export const useScanStore = defineStore('scan', () => {
     }
     const next = [entry, ...history.value].slice(0, HISTORY_MAX)
     history.value = next
-    persistHistory(next)
+    await persistHistory(next)
   }
 
   /** 删除指定历史条目。 */
