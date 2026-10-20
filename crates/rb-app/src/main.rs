@@ -6,7 +6,7 @@ mod state;
 use commands::{
     cancel_scan, export_custom_rules, export_report, export_scan_history, import_custom_rules,
     import_scan_history, load_scan_history, repo_info, save_scan_history, scan_estimate,
-    select_directory, start_remote_scan, start_scan,
+    select_directories, select_directory, start_remote_scan, start_scan,
 };
 use state::ScanState;
 
@@ -16,6 +16,7 @@ fn main() {
         .manage(ScanState::new())
         .invoke_handler(tauri::generate_handler![
             select_directory,
+            select_directories,
             repo_info,
             scan_estimate,
             start_scan,

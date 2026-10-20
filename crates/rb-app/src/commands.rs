@@ -41,6 +41,25 @@ pub async fn select_directory(app: tauri::AppHandle) -> Result<Option<String>, S
     Ok(result.and_then(|p| p.as_path().map(|p| p.to_string_lossy().to_string())))
 }
 
+/// 批量选择仓库目录（多选）：返回所选目录；用户取消返回空列表。
+///
+/// 这里只负责选目录，**不预先校验**每个目录是否为 git 仓库——批量队列由前端
+/// 逐条串行扫描，单条失败只在队列里标红，不影响其余仓库（批量场景下「一个坏
+/// 目录中断整批」是不可接受的）。
+#[tauri::command]
+pub async fn select_directories(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let (tx, rx) = oneshot::channel();
+    app.dialog().file().pick_folders(move |paths| {
+        let _ = tx.send(paths);
+    });
+    let result = rx.await.map_err(|e| e.to_string())?;
+    Ok(result
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| p.as_path().map(|p| p.to_string_lossy().to_string()))
+        .collect())
+}
+
 /// 获取仓库快照信息（提交数/分支数/文件数等）。
 ///
 /// 异步命令：快照需全量遍历提交与文件树，大仓库耗时明显，

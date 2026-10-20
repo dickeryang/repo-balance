@@ -223,7 +223,7 @@ repo-balance/
 │       └── build.rs          # tauri-build
 ├── ui/                       # Vue 3 前端工程
 │   ├── src/
-│   │   ├── views/            # 四视图（接入/扫描/报告/历史）
+│   │   ├── views/            # 五视图（接入/扫描/报告/历史/批量看板）
 │   │   ├── components/       # 通用组件（TopBar/RadarChart/TrendChart）
 │   │   ├── stores/           # Pinia 状态管理
 │   │   ├── ipc/              # IPC 封装（命令+事件）
@@ -277,6 +277,7 @@ repo-balance/
 - [x] **自定义规则**：以 JSON 定义「正则 + 路径 glob + 严重度 + 维度 + 话术」，把团队自有规约变成可复现结论；GUI 表单管理 + JSON 导入导出，CLI `--rules FILE`；正则线性时间匹配，命中样本掩码，单规则 50 文件上限并如实提示截断（格式见 [`docs/custom-rules.md`](docs/custom-rules.md)）
 - [x] **远程仓库体检**：输入 URL 浅克隆到临时目录（`TempDir` RAII 自动清理）后复用本地扫描管线，报告路径以 URL 为准；CLI `rb scan-url <url> [--depth N]`，GUI 连接页支持远程 URL 直扫
 - [x] **健康度趋势分析**：历史页按仓库绘制「总分 + 五维」折线（内联 SVG，无图表依赖）；N/A 维度断线不插值、图例可隐藏曲线、单点 tooltip 标注时间与取值
+- [x] **多仓库批量体检**：一次多选目录形成串行队列，单仓失败不中断整批；汇总对比看板展示整批进度、每仓总分 / 问题数 / 严重数 / 用时并按总分排序，平均分只统计已完成仓库；完成仓库写入历史，可跳回报告页
 
 ### 近期（v0.2 ~ v0.3）
 
@@ -285,7 +286,6 @@ repo-balance/
 ### 中长期（v0.5 → v1.0）
 
 - [ ] **漏洞库一键更新 / 随包分发**：索引生成脚本已备（`scripts/build-vuln-index.sh`），但尚无 GUI 入口
-- [ ] **多仓库批量体检**：仓库队列 + 汇总看板，面向团队仓库治理
 - [ ] **官方 GitHub Action**、自动更新、Homebrew / Scoop / Winget 分发
 - [ ] **团队报告协作**：Report as Code，整改项 PR 评审闭环
 

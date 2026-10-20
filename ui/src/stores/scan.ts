@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import * as ipc from '../ipc/commands'
 import { onScanDone, onScanProgress, onScanError } from '../ipc/events'
 import type { UnlistenFn } from '@tauri-apps/api/event'
-import type { RepoSnapshot, ScanReport, CheckerFeedRow, ProgressEvent, ScanConfig, ScaleEstimate, HistoryEntry, HistoryCompare, Finding, TrendPoint, TrendRepo } from '../types/models'
+import type { RepoSnapshot, ScanReport, CheckerFeedRow, ProgressEvent, ScanConfig, ScaleEstimate, HistoryEntry, HistoryCompare, Finding, TrendPoint, TrendRepo, BatchItem, BatchSummary } from '../types/models'
 import { ALL_CHECKER_IDS } from '../types/models'
 
 const DEFAULT_CONFIG: ScanConfig = {
@@ -74,8 +74,17 @@ function totalOrNullOf(report: ScanReport): number | null {
   return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
 }
 
+/** 单轮扫描的收尾结果（批量串行扫描用 promise 串起每一轮）。 */
+interface ScanOutcome {
+  /** 完成的报告；失败为 null。 */
+  report: ScanReport | null
+  /** 失败原因；成功为 null。 */
+  error: string | null
+}
+
 export const useScanStore = defineStore('scan', () => {
-  const currentView = ref<1 | 2 | 3 | 4>(1)
+  /** 视图：1 接入 / 2 扫描 / 3 报告 / 4 历史 / 5 批量看板。 */
+  const currentView = ref<1 | 2 | 3 | 4 | 5>(1)
   const selectedPath = ref<string | null>(null)
   const repoInfo = ref<RepoSnapshot | null>(null)
   const repoError = ref<string | null>(null)
@@ -98,6 +107,15 @@ export const useScanStore = defineStore('scan', () => {
   let scanToken = 0
   // 当前扫描的事件监听注销器：startScan 时注册，结束/重置时注销。
   let unlisteners: Promise<UnlistenFn>[] = []
+
+  // 批量体检：队列项、整批状态与「当前这一轮」的收尾回调。
+  const batchItems = ref<BatchItem[]>([])
+  const batchRunning = ref(false)
+  const batchCancelled = ref(false)
+  const batchStartedAt = ref<number | null>(null)
+  const batchFinishedAt = ref<number | null>(null)
+  // 非空 = 当前这一轮属于批量：scan-done / scan-error 交给它收尾，不切视图。
+  let batchSettle: ((outcome: ScanOutcome) => void) | null = null
 
   const filteredFindings = computed(() => {
     if (!report.value) return []
@@ -154,6 +172,31 @@ export const useScanStore = defineStore('scan', () => {
       }))
       .sort((a, b) => a.savedAt - b.savedAt)
   }
+
+  /** 批量体检汇总：评分只统计已完成仓库，未覆盖维度不参与平均。 */
+  const batchSummary = computed<BatchSummary>(() => {
+    const items = batchItems.value
+    const done = items.filter((i) => i.status === 'done')
+    const scored = done.filter((i) => i.total !== null)
+    const ranked = [...scored].sort((a, b) => (b.total ?? 0) - (a.total ?? 0))
+    return {
+      total: items.length,
+      done: done.length,
+      skipped: items.filter((i) => i.status === 'skipped').length,
+      failed: items.filter((i) => i.status === 'failed').length,
+      avgScore:
+        scored.length > 0
+          ? Math.round(scored.reduce((sum, i) => sum + (i.total ?? 0), 0) / scored.length)
+          : null,
+      best: ranked[0] ?? null,
+      worst: ranked[ranked.length - 1] ?? null,
+      findingCount: done.reduce((sum, i) => sum + i.findingCount, 0),
+      criticalCount: done.reduce((sum, i) => sum + i.criticalCount, 0),
+      durationMs: batchStartedAt.value
+        ? (batchFinishedAt.value ?? Date.now()) - batchStartedAt.value
+        : 0,
+    }
+  })
 
   async function selectDirectory() {
     const path = await ipc.selectDirectory()
@@ -269,6 +312,15 @@ export const useScanStore = defineStore('scan', () => {
     unlisteners = []
   }
 
+  /** 检查器 feed 初始行：按启用列表（空 = 全部）预置待运行行。 */
+  function freshCheckerFeed(): CheckerFeedRow[] {
+    const ids =
+      scanConfig.value.enabledCheckers.length > 0
+        ? scanConfig.value.enabledCheckers
+        : [...ALL_CHECKER_IDS]
+    return ids.map((id) => ({ checkerId: id, status: 'pending', findingCount: 0 }))
+  }
+
   /** 注册本轮扫描的事件监听，回调按代际号过滤陈旧事件。 */
   function listenScanEvents(token: number) {
     unlistenScanEvents()
@@ -279,13 +331,18 @@ export const useScanStore = defineStore('scan', () => {
       onScanDone((r) => {
         if (stale()) return
         unlistenScanEvents()
-        report.value = r
-        isCancelled.value = r.cancelled
         isScanning.value = false
         // 收尾未收到完成事件的检查器行（如取消时中断在 check 阶段）。
         checkerFeed.value = checkerFeed.value.map((row) =>
           row.status === 'done' ? row : { ...row, status: 'done' },
         )
+        // 批量模式：只收尾当前这一轮，视图跳转与历史写入由批量调度负责。
+        if (batchSettle) {
+          batchSettle({ report: r, error: null })
+          return
+        }
+        report.value = r
+        isCancelled.value = r.cancelled
         if (!r.cancelled) saveToHistory(r)
         currentView.value = 3
       }),
@@ -310,11 +367,15 @@ export const useScanStore = defineStore('scan', () => {
           checkerFeed.value = rows
         }
       }),
-      // scan-error：扫描失败，回接入页并展示错误
+      // scan-error：扫描失败，回接入页并展示错误；批量模式仅标记该仓库失败。
       onScanError((error) => {
         if (stale()) return
         unlistenScanEvents()
         isScanning.value = false
+        if (batchSettle) {
+          batchSettle({ report: null, error })
+          return
+        }
         repoError.value = error
         currentView.value = 1
       }),
@@ -328,11 +389,7 @@ export const useScanStore = defineStore('scan', () => {
     progress.value = null
     // 初始化检查器 feed：按启用列表（空 = 全部）预置待运行行，
     // 扫描开始后由 check 阶段进度事件驱动 running → done。
-    const ids =
-      scanConfig.value.enabledCheckers.length > 0
-        ? scanConfig.value.enabledCheckers
-        : [...ALL_CHECKER_IDS]
-    checkerFeed.value = ids.map((id) => ({ checkerId: id, status: 'pending', findingCount: 0 }))
+    checkerFeed.value = freshCheckerFeed()
     const token = ++scanToken
     listenScanEvents(token)
     try {
@@ -352,11 +409,7 @@ export const useScanStore = defineStore('scan', () => {
     isCancelled.value = false
     report.value = null
     progress.value = null
-    const ids =
-      scanConfig.value.enabledCheckers.length > 0
-        ? scanConfig.value.enabledCheckers
-        : [...ALL_CHECKER_IDS]
-    checkerFeed.value = ids.map((id) => ({ checkerId: id, status: 'pending', findingCount: 0 }))
+    checkerFeed.value = freshCheckerFeed()
     const token = ++scanToken
     listenScanEvents(token)
     setCurrentView(2)
@@ -378,6 +431,156 @@ export const useScanStore = defineStore('scan', () => {
     } catch (e) {
       console.error('取消扫描失败:', e)
       isCancelled.value = false
+    }
+  }
+
+  /** 批量选择仓库目录：多选后立即按队列串行体检（不预先校验是否为 git 仓库）。 */
+  async function selectDirectoriesForBatch() {
+    if (batchRunning.value || isScanning.value) return
+    let paths: string[] = []
+    try {
+      paths = await ipc.selectDirectories()
+    } catch (e) {
+      repoError.value = String(e)
+      return
+    }
+    if (paths.length === 0) return
+    await startBatch(paths)
+  }
+
+  /**
+   * 批量体检：按队列串行扫描。
+   *
+   * 复用单仓扫描的事件流（每轮重新注册 / 注销监听，靠代际号过滤陈旧事件），
+   * 因此不需要新增 Rust 命令；单仓失败只在队列里标红，不中断整批。
+   * 完成的仓库照常写入扫描历史（趋势图据此可看演进）。
+   */
+  async function startBatch(paths: string[]) {
+    if (batchRunning.value || paths.length === 0) return
+    // 去重（同目录被选两次只扫一次），保留用户选择的顺序。
+    const seen = new Set<string>()
+    batchItems.value = paths
+      .filter((p) => {
+        if (seen.has(p)) return false
+        seen.add(p)
+        return true
+      })
+      .map((path) => ({
+        path,
+        name: repoNameOf(path),
+        status: 'pending' as const,
+        total: null,
+        findingCount: 0,
+        criticalCount: 0,
+        durationMs: 0,
+        error: null,
+        report: null,
+      }))
+    batchRunning.value = true
+    batchCancelled.value = false
+    batchStartedAt.value = Date.now()
+    batchFinishedAt.value = null
+    repoError.value = null
+    setCurrentView(5)
+
+    for (const item of batchItems.value) {
+      if (batchCancelled.value) {
+        item.status = 'skipped'
+        continue
+      }
+      item.status = 'running'
+      item.error = null
+      isScanning.value = true
+      isCancelled.value = false
+      report.value = null
+      progress.value = null
+      checkerFeed.value = freshCheckerFeed()
+
+      const startedAt = Date.now()
+      // 每轮一个 promise：scan-done / scan-error 都经 batchSettle 收尾。
+      const outcome = await new Promise<ScanOutcome>((resolve) => {
+        batchSettle = resolve
+        const token = ++scanToken
+        listenScanEvents(token)
+        ipc.startScan(item.path, scanConfig.value).catch((e) => {
+          if (token !== scanToken) return
+          unlistenScanEvents()
+          isScanning.value = false
+          resolve({ report: null, error: String(e) })
+        })
+      })
+      batchSettle = null
+      item.durationMs = Date.now() - startedAt
+
+      const result = outcome.report
+      if (!result) {
+        item.status = 'failed'
+        item.error = outcome.error ?? '未知错误'
+        continue
+      }
+      if (result.cancelled) {
+        // 用户取消：当前仓库标记跳过，并中止后续仓库。
+        item.status = 'skipped'
+        batchCancelled.value = true
+        continue
+      }
+      item.status = 'done'
+      item.total = totalOrNullOf(result)
+      item.findingCount = result.findings.length
+      item.criticalCount = result.findings.filter((f) => f.severity === 'critical').length
+      item.report = result
+      saveToHistory(result)
+    }
+
+    // 取消后把仍处于等待态的仓库统一标记为跳过（与队列现状一致）。
+    if (batchCancelled.value) {
+      batchItems.value = batchItems.value.map((i) =>
+        i.status === 'pending' ? { ...i, status: 'skipped' } : i,
+      )
+    }
+    batchRunning.value = false
+    batchFinishedAt.value = Date.now()
+    isScanning.value = false
+    isCancelled.value = false
+    progress.value = null
+  }
+
+  /** 取消批量：取消当前仓库的扫描，剩余仓库标记跳过（不继续排队）。 */
+  async function cancelBatch() {
+    if (!batchRunning.value) return
+    batchCancelled.value = true
+    await cancelScan()
+  }
+
+  /** 清空批量队列（仅在整批结束后可用）。 */
+  function clearBatch() {
+    if (batchRunning.value) return
+    batchItems.value = []
+    batchStartedAt.value = null
+    batchFinishedAt.value = null
+    batchCancelled.value = false
+  }
+
+  /**
+   * 打开批量结果中的某份报告：复用报告页。
+   *
+   * 批量只回传报告、不回传快照，这里按需补取仓库信息；仓库已被移动 / 删除时
+   * 快照取不到也不影响报告本身渲染（快照只用于头部摘要）。
+   */
+  async function openBatchReport(index: number) {
+    const item = batchItems.value[index]
+    if (!item?.report) return
+    report.value = item.report
+    selectedPath.value = item.path
+    repoInfo.value = null
+    scaleEstimate.value = null
+    isCancelled.value = false
+    progress.value = null
+    currentView.value = 3
+    try {
+      repoInfo.value = await ipc.repoInfo(item.path)
+    } catch {
+      /* 仓库不可达：保留报告视图，仅缺快照摘要 */
     }
   }
 
@@ -406,6 +609,13 @@ export const useScanStore = defineStore('scan', () => {
   }
 
   function resetToConnect() {
+    // 批量在途：先让当前这一轮收尾，否则批量循环会等一个永不到来的完成事件
+    // （下面会注销监听并使代际号失效），队列将永久停在「进行中」。
+    if (batchSettle) {
+      batchSettle({ report: null, error: '批量体检已中止' })
+      batchSettle = null
+      batchCancelled.value = true
+    }
     scanToken++ // 使任何在途扫描的迟到事件全部失效
     unlistenScanEvents()
     currentView.value = 1
@@ -424,6 +634,8 @@ export const useScanStore = defineStore('scan', () => {
 
   /** 更换仓库：取消在途扫描、清空全部状态并回到接入页。 */
   async function switchRepo() {
+    // 批量在途时先中止整批（否则循环会继续扫下一个仓库）。
+    if (batchRunning.value) await cancelBatch()
     if (isScanning.value) {
       await cancelScan()
       isScanning.value = false
@@ -431,7 +643,7 @@ export const useScanStore = defineStore('scan', () => {
     resetToConnect()
   }
 
-  function setCurrentView(view: 1 | 2 | 3 | 4) {
+  function setCurrentView(view: 1 | 2 | 3 | 4 | 5) {
     currentView.value = view
   }
 
@@ -518,6 +730,17 @@ export const useScanStore = defineStore('scan', () => {
     totalScore,
     trendRepos,
     trendSeries,
+    batchItems,
+    batchRunning,
+    batchCancelled,
+    batchStartedAt,
+    batchFinishedAt,
+    batchSummary,
+    startBatch,
+    cancelBatch,
+    clearBatch,
+    openBatchReport,
+    selectDirectoriesForBatch,
     selectDirectory,
     fetchRepoInfo,
     initHistory,

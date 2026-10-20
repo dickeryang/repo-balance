@@ -31,6 +31,15 @@ function submitRemote() {
       <button class="btn ghost" :disabled="!remoteUrl.trim()" @click="submitRemote">{{ t('connect.remoteScan') }}</button>
     </div>
     <p class="dim">{{ t('connect.remoteHint') }}</p>
+    <div class="batch-row" @click.stop>
+      <button class="btn ghost" :disabled="store.isScanning" @click="store.selectDirectoriesForBatch()">
+        {{ t('batch.selectDirs') }}
+      </button>
+      <button v-if="store.batchItems.length > 0" class="btn ghost" @click="store.setCurrentView(5)">
+        {{ t('batch.viewLast').replace('{n}', String(store.batchItems.length)) }}
+      </button>
+    </div>
+    <p class="dim">{{ t('batch.selectHint') }}</p>
   </div>
 </template>
 
@@ -86,5 +95,15 @@ code {
 .remote-input:focus {
   outline: none;
   border-color: var(--accent);
+}
+.batch-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 18px;
+}
+.batch-row .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

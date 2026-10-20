@@ -1,6 +1,11 @@
 import { invoke } from '@tauri-apps/api/core'
 import type { CustomRule, RepoSnapshot, ScanReport, ScanConfig, ScaleEstimate } from '../types/models'
 
+/** 批量选择仓库目录（多选）；用户取消返回空数组。 */
+export async function selectDirectories(): Promise<string[]> {
+  return invoke<string[]>('select_directories')
+}
+
 export async function selectDirectory(): Promise<string | null> {
   return invoke<string | null>('select_directory')
 }

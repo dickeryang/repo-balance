@@ -223,7 +223,7 @@ repo-balance/
 │       └── build.rs          # tauri-build
 ├── ui/                       # Vue 3 frontend project
 │   ├── src/
-│   │   ├── views/            # Views (connect / scan / report / history)
+│   │   ├── views/            # Views (connect / scan / report / history / batch dashboard)
 │   │   ├── components/       # Shared components (TopBar / RadarChart / TrendChart)
 │   │   ├── stores/           # Pinia state stores
 │   │   ├── ipc/              # IPC wrapper (commands + events)
@@ -291,6 +291,7 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 - [x] **Custom rules** — define team-specific checks in JSON (regex + path glob + severity + category + advice) and turn your own conventions into reproducible findings; managed via GUI forms with JSON import / export, and `--rules FILE` on the CLI; regex matching is linear-time, matched samples are masked, and each rule is capped at 50 file findings with an honest truncation notice (format: [`docs/custom-rules.md`](docs/custom-rules.md), Chinese)
 - [x] **Remote repository checkup** — shallow-clone a URL into a temp directory (`TempDir` RAII cleans up automatically) and reuse the local pipeline; the report path is the URL. CLI `rb scan-url <url> [--depth N]`, plus a remote-URL entry on the connect view
 - [x] **Health trend analysis** — the history view charts "total + five dimensions" over time per repository (inline SVG, no chart dependency); N/A dimensions break the line instead of being interpolated, legend chips toggle curves, and per-point tooltips show time and value
+- [x] **Bulk multi-repository checkup** — select several folders at once to build a sequential queue where one failing repository never aborts the batch; the dashboard shows batch progress plus per-repo score / findings / criticals / duration ranked by score, averages count finished repositories only, and finished runs are written to history and can jump straight back into their report
 
 ### Next (v0.2 ~ v0.3)
 
@@ -299,7 +300,6 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 ### Mid / long term (v0.5 → v1.0)
 
 - [ ] **One-click advisory DB update / bundled distribution** — the generator script exists (`scripts/build-vuln-index.sh`), but there is no GUI entry yet
-- [ ] **Bulk multi-repository checkup** — scan queue plus an aggregate dashboard for team governance
 - [ ] **Official GitHub Action**, auto-update, Homebrew / Scoop / Winget distribution
 - [ ] **Team report collaboration** — Report as Code, closing remediation items through PR review
 

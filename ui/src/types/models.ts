@@ -1,4 +1,53 @@
 export type Severity = 'critical' | 'warning' | 'info'
+
+/** 批量体检中单个仓库的状态。 */
+export type BatchStatus = 'pending' | 'running' | 'done' | 'skipped' | 'failed'
+
+/** 批量体检队列中的一项（一个仓库一行）。 */
+export interface BatchItem {
+  /** 仓库路径（本地绝对路径）。 */
+  path: string
+  /** 仓库名（路径末段）。 */
+  name: string
+  /** 当前状态。 */
+  status: BatchStatus
+  /** 总分（已覆盖维度平均）；未完成 / 失败为 null。 */
+  total: number | null
+  /** 问题总数。 */
+  findingCount: number
+  /** 严重问题数。 */
+  criticalCount: number
+  /** 本仓库扫描用时（毫秒）。 */
+  durationMs: number
+  /** 失败原因（status=failed 时）。 */
+  error: string | null
+  /** 完整报告（仅 done 保留，供「查看报告」复用报告页）。 */
+  report: ScanReport | null
+}
+
+/** 批量体检汇总：评分口径只统计已完成仓库。 */
+export interface BatchSummary {
+  /** 队列仓库数。 */
+  total: number
+  /** 已完成数。 */
+  done: number
+  /** 跳过数（取消）。 */
+  skipped: number
+  /** 失败数。 */
+  failed: number
+  /** 已完成仓库的平均总分；无有效评分为 null。 */
+  avgScore: number | null
+  /** 最高分仓库。 */
+  best: BatchItem | null
+  /** 最低分仓库。 */
+  worst: BatchItem | null
+  /** 问题总数。 */
+  findingCount: number
+  /** 严重问题总数。 */
+  criticalCount: number
+  /** 整批用时（毫秒）；进行中为已耗时。 */
+  durationMs: number
+}
 export type Category = 'structure' | 'history' | 'branches' | 'deps' | 'security'
 
 export interface CommitSummary {
