@@ -1,8 +1,11 @@
-//! IPC 命令层：五条命令桥接前端与 rb-core。
+//! IPC 命令层：桥接前端与 rb-core。
 //!
 //! start_scan 异步包装同步 engine::scan，完成后 emit scan-done
 //! （取消的扫描推送 cancelled=true 的部分报告，同样经 scan-done）；
 //! 失败 emit scan-error。
+//!
+//! 本模块不含业务逻辑：阈值换算、规则校验、漏洞库校验等口径都在 rb-core
+//! 或纯函数中（便于单测），命令层只做「取参数 → 调内核 → 回结果」。
 
 use std::path::PathBuf;
 
@@ -10,7 +13,9 @@ use tauri::{Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 
-use crate::dto::{CustomRuleDto, RepoSnapshotDto, ScaleEstimateDto, ScanReportDto};
+use crate::dto::{
+    CustomRuleDto, RepoSnapshotDto, ScaleEstimateDto, ScanReportDto, VulnIndexInfoDto,
+};
 use crate::error::map_error;
 use crate::state::ScanState;
 use rb_core::model::vuln::VulnIndex;
@@ -322,6 +327,89 @@ pub(crate) fn load_vuln_index(app: &tauri::AppHandle) -> Option<std::sync::Arc<V
             None
         }
     }
+}
+
+/// 校验漏洞库索引文本并返回条目数。
+///
+/// 导入前**先验后写**：解析失败或空库一律拒绝落盘，避免损坏 / 空索引覆盖
+/// 既有可用库（那样依赖维度会从「能查漏洞」静默退化为「不查」）。
+/// 单独抽函数以便单测——对话框部分依赖运行时，无法在测试中驱动。
+fn validate_vuln_index(text: &str) -> std::result::Result<usize, String> {
+    let index = rb_core::vuln::load_index(text).map_err(|e| format!("漏洞库索引解析失败: {e}"))?;
+    let count = index.len();
+    if count == 0 {
+        return Err("漏洞库索引为空（0 条公告），未写入".to_owned());
+    }
+    Ok(count)
+}
+
+/// 导入离线漏洞库索引：文件对话框选 JSONL → 校验 → 写入应用数据目录。
+///
+/// **纯离线**：不做任何网络请求（与「纯本地零网络」定位一致）；用户取消返回
+/// `Ok(None)`，导入成功返回公告条数。
+#[tauri::command]
+pub async fn import_vuln_index(app: tauri::AppHandle) -> Result<Option<usize>, String> {
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("JSONL", &["jsonl"])
+        .pick_file(move |path| {
+            let _ = tx.send(path);
+        });
+
+    let result = rx.await.map_err(|e| e.to_string())?;
+    let Some(path) = result else {
+        return Ok(None); // 用户取消
+    };
+    let file_path = path
+        .as_path()
+        .ok_or_else(|| "无效的索引文件路径".to_owned())?
+        .to_path_buf();
+
+    let text = std::fs::read_to_string(&file_path).map_err(|e| format!("读取文件失败: {e}"))?;
+    let count = validate_vuln_index(&text)?;
+
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法定位应用数据目录: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建应用数据目录失败: {e}"))?;
+    std::fs::write(dir.join(VULN_INDEX_FILE_NAME), text)
+        .map_err(|e| format!("写入漏洞库失败: {e}"))?;
+    Ok(Some(count))
+}
+
+/// 查询离线漏洞库状态：不存在 / 目录不可用时返回 `None`。
+///
+/// 条目数按「非空非注释行」统计（与 `load_index` 的解析口径一致），不整体
+/// 反序列化——状态展示不值得为此解析全库；真实可用性由扫描时的载入逻辑判断。
+#[tauri::command]
+pub async fn vuln_index_info(app: tauri::AppHandle) -> Result<Option<VulnIndexInfoDto>, String> {
+    let Ok(dir) = app.path().app_data_dir() else {
+        return Ok(None);
+    };
+    let path = dir.join(VULN_INDEX_FILE_NAME);
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return Ok(None);
+    };
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("读取漏洞库失败: {e}"))?;
+    let entries = text
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+        .count();
+    if entries == 0 {
+        return Ok(None);
+    }
+    let updated_at = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs());
+    Ok(Some(VulnIndexInfoDto {
+        entries,
+        updated_at,
+        bytes: meta.len(),
+    }))
 }
 
 /// 历史范围受限时的告知文案；未限流（两项均空/0）返回 `None`。
@@ -918,7 +1006,7 @@ footer {{ color:#8b95ab; font-size:12px; text-align:center; margin-top:32px; }}
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
-    use super::{custom_rules_json, scope_note_of, validate_history_json};
+    use super::{custom_rules_json, scope_note_of, validate_history_json, validate_vuln_index};
     use crate::dto::{CustomRuleDto, ScanConfigDto};
     use rb_core::model::finding::{Category, Severity};
 
@@ -961,6 +1049,31 @@ mod tests {
     #[test]
     fn 规则导出_空规则集合法() {
         assert_eq!(custom_rules_json(&[]).unwrap(), "[]");
+    }
+
+    /// 漏洞库校验：合法索引返回条目数（跳过空行与注释行）。
+    #[test]
+    fn 漏洞库校验_合法索引返回条目数() {
+        let text = concat!(
+            "# generated\n",
+            "\n",
+            r#"{"id":"GHSA-1","eco":"npm","pkg":"lodash","ranges":[{"introduced":"0","fixed":"4.17.21"}]}"#,
+            "\n",
+            r#"{"id":"RUSTSEC-1","eco":"cargo","pkg":"serde","ranges":[{"introduced":"1.0.0","fixed":"1.0.100"}]}"#,
+            "\n"
+        );
+        assert_eq!(validate_vuln_index(text).unwrap(), 2);
+    }
+
+    /// 漏洞库校验：空库与坏行均被拒绝（不覆盖既有可用索引）。
+    #[test]
+    fn 漏洞库校验_空库与坏行被拒绝() {
+        assert!(validate_vuln_index("").unwrap_err().contains("为空"));
+        assert!(validate_vuln_index("# only comment\n")
+            .unwrap_err()
+            .contains("为空"));
+        let err = validate_vuln_index("not-json\n").unwrap_err();
+        assert!(err.contains("解析失败"), "{err}");
     }
 
     /// 未限流（全部为空）不产出范围说明。

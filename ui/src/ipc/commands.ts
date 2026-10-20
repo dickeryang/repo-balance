@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { CustomRule, RepoSnapshot, ScanReport, ScanConfig, ScaleEstimate } from '../types/models'
+import type { CustomRule, RepoSnapshot, ScanReport, ScanConfig, ScaleEstimate, VulnIndexInfo } from '../types/models'
 
 /** 批量选择仓库目录（多选）；用户取消返回空数组。 */
 export async function selectDirectories(): Promise<string[]> {
@@ -53,6 +53,16 @@ export async function importScanHistory(): Promise<string | null> {
 /** 导出扫描历史：弹保存对话框并写盘，返回实际路径（取消时为 null）。 */
 export async function exportScanHistory(data: string): Promise<string | null> {
   return invoke<string | null>('export_scan_history', { data })
+}
+
+/** 导入离线漏洞库索引（JSONL）；返回公告条数，取消时为 null。 */
+export async function importVulnIndex(): Promise<number | null> {
+  return invoke<number | null>('import_vuln_index')
+}
+
+/** 查询离线漏洞库状态；未载入时返回 null。 */
+export async function vulnIndexInfo(): Promise<VulnIndexInfo | null> {
+  return invoke<VulnIndexInfo | null>('vuln_index_info')
 }
 
 /** 导入自定义规则：弹文件对话框，返回已校验的规则列表（取消时为 null）。 */

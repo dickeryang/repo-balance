@@ -16,9 +16,16 @@ const DEFAULT_CONFIG: ScanConfig = {
 }
 /** 旧版 localStorage 键：仅用于一次性迁移，读走后即清理。 */
 const HISTORY_KEY = 'rb-scan-history'
-const HISTORY_MAX = 20
+/** 历史保留上限（全局，跨仓库）；趋势图与历史页均如实标注该上限。 */
+export const HISTORY_MAX = 20
 
-function loadConfig(): ScanConfig {
+/**
+ * 读取本地扫描配置；损坏 / 缺失时回退默认值。
+ *
+ * 与下方若干纯函数一并以 `export` 暴露，专供单元测试直接覆盖
+ * （`scan.test.ts`）；应用代码只消费 store 实例，不要直接调用。
+ */
+export function loadConfig(): ScanConfig {
   try {
     const raw = localStorage.getItem('rb-scan-config')
     if (raw) return { ...DEFAULT_CONFIG, ...JSON.parse(raw) }
@@ -29,7 +36,7 @@ function loadConfig(): ScanConfig {
 }
 
 /** 解析历史 JSON；非法内容回退空列表（旧数据损坏不应阻断启动）。 */
-function parseHistory(raw: string | null): HistoryEntry[] {
+export function parseHistory(raw: string | null): HistoryEntry[] {
   if (!raw) return []
   try {
     const parsed = JSON.parse(raw)
@@ -43,20 +50,23 @@ function parseHistory(raw: string | null): HistoryEntry[] {
  * 合并两组历史：现有条目优先（同 id 不覆盖），按保存时间倒序保留最新 HISTORY_MAX 条。
  * 迁移旧数据与导入外部文件共用同一口径。
  */
-function mergeHistory(current: HistoryEntry[], incoming: HistoryEntry[]): HistoryEntry[] {
+export function mergeHistory(
+  current: HistoryEntry[],
+  incoming: HistoryEntry[],
+): HistoryEntry[] {
   const ids = new Set(current.map((e) => e.id))
   return [...current, ...incoming.filter((e) => !ids.has(e.id))]
     .sort((a, b) => b.savedAt - a.savedAt)
     .slice(0, HISTORY_MAX)
 }
 
-function repoNameOf(path: string): string {
+export function repoNameOf(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, '')
   const seg = trimmed.split(/[\\/]/).pop()
   return seg || trimmed
 }
 
-function totalScoreOf(report: ScanReport): number {
+export function totalScoreOf(report: ScanReport): number {
   const scores = report.radarPoints.map((p) => p.score).filter((s): s is number => s !== null)
   if (scores.length === 0) return 0
   return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
@@ -68,7 +78,7 @@ function totalScoreOf(report: ScanReport): number {
  * 与 totalScoreOf 的差异：趋势图必须区分「0 分」与「无结论」，否则会把
  * N/A 画成断崖下跌（诚信口径：未覆盖维度不参与、不伪造）。
  */
-function totalOrNullOf(report: ScanReport): number | null {
+export function totalOrNullOf(report: ScanReport): number | null {
   const scores = report.radarPoints.map((p) => p.score).filter((s): s is number => s !== null)
   if (scores.length === 0) return null
   return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
@@ -83,8 +93,8 @@ interface ScanOutcome {
 }
 
 export const useScanStore = defineStore('scan', () => {
-  /** 视图：1 接入 / 2 扫描 / 3 报告 / 4 历史 / 5 批量看板。 */
-  const currentView = ref<1 | 2 | 3 | 4 | 5>(1)
+  /** 视图：1 接入 / 2 扫描 / 3 报告 / 4 历史 / 5 批量看板 / 6 设置。 */
+  const currentView = ref<1 | 2 | 3 | 4 | 5 | 6>(1)
   const selectedPath = ref<string | null>(null)
   const repoInfo = ref<RepoSnapshot | null>(null)
   const repoError = ref<string | null>(null)
@@ -644,7 +654,7 @@ export const useScanStore = defineStore('scan', () => {
     resetToConnect()
   }
 
-  function setCurrentView(view: 1 | 2 | 3 | 4 | 5) {
+  function setCurrentView(view: 1 | 2 | 3 | 4 | 5 | 6) {
     currentView.value = view
   }
 

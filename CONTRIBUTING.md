@@ -28,7 +28,7 @@ cargo tauri dev
 cargo fmt --all -- --check        # 格式（rustfmt.toml：max_width = 100 + 字段初始化简写）
 cargo clippy --all-targets --workspace   # 静态检查（零 warning 为门禁）
 cargo test --workspace                   # 单元测试（含 git2 真实仓库夹具）
-cd ui && npm run lint && npm run build   # 前端 ESLint + 构建
+cd ui && npm run lint && npm run test && npm run build   # 前端 ESLint + 单测（Vitest）+ 构建
 ```
 
 ## 三、代码纪律

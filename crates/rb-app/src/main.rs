@@ -5,8 +5,9 @@ mod state;
 
 use commands::{
     cancel_scan, export_custom_rules, export_report, export_scan_history, import_custom_rules,
-    import_scan_history, load_scan_history, repo_info, save_scan_history, scan_estimate,
-    select_directories, select_directory, start_remote_scan, start_scan,
+    import_scan_history, import_vuln_index, load_scan_history, repo_info, save_scan_history,
+    scan_estimate, select_directories, select_directory, start_remote_scan, start_scan,
+    vuln_index_info,
 };
 use state::ScanState;
 
@@ -28,7 +29,9 @@ fn main() {
             import_scan_history,
             export_scan_history,
             import_custom_rules,
-            export_custom_rules
+            export_custom_rules,
+            import_vuln_index,
+            vuln_index_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

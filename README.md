@@ -126,8 +126,8 @@ cargo clippy --all-targets --workspace -- -D warnings
 # Rust 测试
 cargo test --workspace
 
-# 前端 lint + 构建
-cd ui && npm run lint && npm run build
+# 前端 lint + 单测 + 构建
+cd ui && npm run lint && npm run test && npm run build
 ```
 
 > CI 还包含两个独立 job：**依赖许可证与漏洞审计**（cargo-deny，门禁配置见 [`deny.toml`](deny.toml)）与
@@ -223,14 +223,16 @@ repo-balance/
 │       └── build.rs          # tauri-build
 ├── ui/                       # Vue 3 前端工程
 │   ├── src/
-│   │   ├── views/            # 五视图（接入/扫描/报告/历史/批量看板）
+│   │   ├── views/            # 六视图（接入/扫描/报告/历史/批量看板/设置）
 │   │   ├── components/       # 通用组件（TopBar/RadarChart/TrendChart）
 │   │   ├── stores/           # Pinia 状态管理
 │   │   ├── ipc/              # IPC 封装（命令+事件）
 │   │   ├── styles/           # 主题样式（14 CSS 变量）
+│   │   ├── test/             # 测试环境准备（内存 localStorage）
 │   │   └── types/            # TS 类型镜像
 │   ├── package.json
-│   └── vite.config.ts
+│   ├── vite.config.ts
+│   └── vitest.config.ts      # Vitest 配置（node 环境，store 单测）
 ├── docs/                     # 文档（路线图 / 自定义规则 / CI 集成 / 演示 GIF）
 │   ├── roadmap.md            # 权威路线图（现状盘点 / 阶段目标 / 验收标准）
 │   ├── custom-rules.md       # 自定义规则 JSON 格式与行为口径
@@ -278,6 +280,9 @@ repo-balance/
 - [x] **远程仓库体检**：输入 URL 浅克隆到临时目录（`TempDir` RAII 自动清理）后复用本地扫描管线，报告路径以 URL 为准；CLI `rb scan-url <url> [--depth N]`，GUI 连接页支持远程 URL 直扫
 - [x] **健康度趋势分析**：历史页按仓库绘制「总分 + 五维」折线（内联 SVG，无图表依赖）；N/A 维度断线不插值、图例可隐藏曲线、单点 tooltip 标注时间与取值
 - [x] **多仓库批量体检**：一次多选目录形成串行队列，单仓失败不中断整批；汇总对比看板展示整批进度、每仓总分 / 问题数 / 严重数 / 用时并按总分排序，平均分只统计已完成仓库；完成仓库写入历史，可跳回报告页
+- [x] **前端单元测试**：Vitest 覆盖 store 的配置持久化 / 历史合并与迁移 / 评分口径 / 趋势聚合 / 批量调度状态机（20 用例），并接入 CI 质量门禁
+- [x] **独立设置页**：检查器开关 / 阈值 / 历史范围 / 自定义规则 / 忽略规则说明从连接页拆出（顶栏「设置」），连接页只保留「选仓库 → 规模预估 → 开始体检」；配置全局生效、存本机
+- [x] **离线漏洞库管理**：设置页可导入 JSONL 索引并查看状态（条目数 / 更新时间 / 体积）；先验后写，损坏或空索引不会覆盖既有可用库；纯本地操作，不做网络请求
 
 ### 近期（v0.2 ~ v0.3）
 
@@ -285,7 +290,7 @@ repo-balance/
 
 ### 中长期（v0.5 → v1.0）
 
-- [ ] **漏洞库一键更新 / 随包分发**：索引生成脚本已备（`scripts/build-vuln-index.sh`），但尚无 GUI 入口
+- [ ] **漏洞库随包分发 / 自动更新**：设置页已支持导入 JSONL 索引并查看状态，但索引未随安装包分发，也不做联网自动更新（受「纯本地零网络」定位限制）
 - [ ] **官方 GitHub Action**、自动更新、Homebrew / Scoop / Winget 分发
 - [ ] **团队报告协作**：Report as Code，整改项 PR 评审闭环
 

@@ -221,6 +221,19 @@ impl ScanConfigDto {
     }
 }
 
+/// 离线漏洞库索引状态 DTO（camelCase）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VulnIndexInfoDto {
+    /// 公告条数（按非空非注释行统计，与 load_index 的解析口径一致）。
+    pub entries: usize,
+    /// 最后更新时间（Unix 秒）；文件系统不支持时为 null。
+    #[serde(default)]
+    pub updated_at: Option<u64>,
+    /// 索引文件体积（字节）。
+    pub bytes: u64,
+}
+
 /// 全部内置检查器 id（与 rb-core 注册顺序一致）。
 ///
 /// 自定义规则检查器 `custom-rules` **不在本表**：它由「是否有规则」驱动启用，

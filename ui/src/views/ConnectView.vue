@@ -3,7 +3,6 @@ import { useScanStore } from '../stores/scan'
 import { useI18n } from '../i18n'
 import DropZone from './connect/DropZone.vue'
 import RepoInfoCard from './connect/RepoInfoCard.vue'
-import ConfigPanel from './connect/ConfigPanel.vue'
 import ScaleEstimateCard from './connect/ScaleEstimateCard.vue'
 
 const store = useScanStore()
@@ -20,7 +19,11 @@ const { t } = useI18n()
     <template v-else-if="store.repoInfo">
       <RepoInfoCard />
       <ScaleEstimateCard />
-      <ConfigPanel />
+      <!-- 检查器开关 / 阈值 / 历史范围 / 自定义规则已拆到独立设置页（视图 6）。 -->
+      <p class="dim config-hint">
+        {{ t('connect.configHint') }}
+        <button class="btn ghost" @click="store.setCurrentView(6)">{{ t('app.settings') }}</button>
+      </p>
     </template>
   </template>
 </template>
@@ -34,5 +37,12 @@ const { t } = useI18n()
   color: var(--critical);
   font-size: 15px;
   font-weight: 600;
+}
+.config-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  font-size: 12px;
 }
 </style>

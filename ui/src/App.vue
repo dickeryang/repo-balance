@@ -10,6 +10,7 @@ import ScanView from './views/ScanView.vue'
 import ReportView from './views/ReportView.vue'
 import HistoryView from './views/HistoryView.vue'
 import BatchView from './views/BatchView.vue'
+import SettingsView from './views/SettingsView.vue'
 
 const store = useScanStore()
 const { locale } = useI18n()
@@ -39,6 +40,9 @@ onMounted(() => {
       </div>
       <div class="view" v-show="store.currentView === 5" :class="{ visible: store.currentView === 5 }">
         <BatchView />
+      </div>
+      <div class="view" v-show="store.currentView === 6" :class="{ visible: store.currentView === 6 }">
+        <SettingsView />
       </div>
     </div>
   </el-config-provider>

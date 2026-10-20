@@ -1,5 +1,5 @@
 # 质量门禁：与「RepBalance 体检」工作流互补——本工作流负责代码质量
-# （格式 / 静态检查 / 测试 / 前端 lint），体检工作流负责任务式仓库扫描。
+# （格式 / 静态检查 / 测试 / 前端 lint 与单测），体检工作流负责任务式仓库扫描。
 #
 # PR 模板要求贡献者勾选 fmt / clippy / test / lint 四项，本工作流将其
 # 转为强制门禁：任一项失败即红灯，未过门禁的变更不允许合并。
@@ -75,6 +75,10 @@ jobs:
 
       - name: 前端 lint（ESLint）
         run: npm run lint
+        working-directory: ui
+
+      - name: 前端单元测试（Vitest）
+        run: npm run test
         working-directory: ui
 
   # 依赖治理独立成 job：失败原因（许可证 / 已知漏洞 / 重复版本）与代码缺陷

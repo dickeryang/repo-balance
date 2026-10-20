@@ -28,7 +28,7 @@ All quality gates must pass before you push:
 cargo fmt --all -- --check               # formatting (rustfmt.toml: max_width = 100)
 cargo clippy --all-targets --workspace -- -D warnings   # lint — warnings are errors in CI
 cargo test --workspace                   # unit tests (real git repos via git2 fixtures)
-cd ui && npm run lint && npm run build   # frontend ESLint + build
+cd ui && npm run lint && npm run test && npm run build   # frontend ESLint + unit tests (Vitest) + build
 ```
 
 These are exactly the checks CI runs; a red check blocks the merge.

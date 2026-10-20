@@ -223,14 +223,16 @@ repo-balance/
 │       └── build.rs          # tauri-build
 ├── ui/                       # Vue 3 frontend project
 │   ├── src/
-│   │   ├── views/            # Views (connect / scan / report / history / batch dashboard)
+│   │   ├── views/            # Views (connect / scan / report / history / batch dashboard / settings)
 │   │   ├── components/       # Shared components (TopBar / RadarChart / TrendChart)
 │   │   ├── stores/           # Pinia state stores
 │   │   ├── ipc/              # IPC wrapper (commands + events)
 │   │   ├── styles/           # Theme styles (14 CSS variables)
+│   │   ├── test/             # Test environment (in-memory localStorage)
 │   │   └── types/            # TS type mirrors
 │   ├── package.json
-│   └── vite.config.ts
+│   ├── vite.config.ts
+│   └── vitest.config.ts      # Vitest config (node env, store unit tests)
 ├── docs/                     # Documentation (roadmap / custom rules / CI integration / demo GIFs)
 │   ├── roadmap.md            # Authoritative roadmap (current state / goals / acceptance)
 │   ├── custom-rules.md       # Custom rule JSON format and behavior (Chinese)
@@ -292,6 +294,9 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 - [x] **Remote repository checkup** — shallow-clone a URL into a temp directory (`TempDir` RAII cleans up automatically) and reuse the local pipeline; the report path is the URL. CLI `rb scan-url <url> [--depth N]`, plus a remote-URL entry on the connect view
 - [x] **Health trend analysis** — the history view charts "total + five dimensions" over time per repository (inline SVG, no chart dependency); N/A dimensions break the line instead of being interpolated, legend chips toggle curves, and per-point tooltips show time and value
 - [x] **Bulk multi-repository checkup** — select several folders at once to build a sequential queue where one failing repository never aborts the batch; the dashboard shows batch progress plus per-repo score / findings / criticals / duration ranked by score, averages count finished repositories only, and finished runs are written to history and can jump straight back into their report
+- [x] **Frontend unit tests** — Vitest covers the store's config persistence / history merge and migration / score semantics / trend aggregation / batch scheduling state machine (20 cases), and runs as part of the CI quality gate
+- [x] **Dedicated settings page** — checker toggles / thresholds / history scope / custom rules / ignore-rule notes moved out of the connect view into a settings page (top-bar "Settings"), leaving connect with "pick repo → scale estimate → start scan"; settings are global and stored locally
+- [x] **Offline advisory DB management** — import a JSONL index from the settings page and see its status (entries / updated / size); validation runs before writing, so a corrupt or empty index never overwrites a working one; purely local, no network access
 
 ### Next (v0.2 ~ v0.3)
 
@@ -299,7 +304,7 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 
 ### Mid / long term (v0.5 → v1.0)
 
-- [ ] **One-click advisory DB update / bundled distribution** — the generator script exists (`scripts/build-vuln-index.sh`), but there is no GUI entry yet
+- [ ] **Bundled advisory DB / auto-update** — the settings page can import a JSONL index and show its status, but the index is not bundled with the installer and is never auto-updated over the network (by the "purely local, zero network" design)
 - [ ] **Official GitHub Action**, auto-update, Homebrew / Scoop / Winget distribution
 - [ ] **Team report collaboration** — Report as Code, closing remediation items through PR review
 

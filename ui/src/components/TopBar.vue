@@ -34,8 +34,22 @@ const { theme, toggleTheme } = useTheme()
     <el-button v-if="store.selectedPath" size="small" round @click="store.switchRepo()">
       {{ t('app.switchRepo') }}
     </el-button>
+    <!-- 扫描中可从任意页面跳回进度视图：否则进了历史 / 设置就回不到进度了 -->
+    <el-button
+      v-if="store.isScanning"
+      size="small"
+      round
+      type="primary"
+      plain
+      @click="store.setCurrentView(2)"
+    >
+      {{ t('app.scanning') }}
+    </el-button>
     <el-button size="small" round @click="store.setCurrentView(4)">
       {{ t('app.history') }}
+    </el-button>
+    <el-button size="small" round @click="store.setCurrentView(6)">
+      {{ t('app.settings') }}
     </el-button>
     <div class="steps">
       <div class="step" :class="{ active: store.currentView === 1, done: store.currentView > 1 }">{{ t('app.step1') }}</div>

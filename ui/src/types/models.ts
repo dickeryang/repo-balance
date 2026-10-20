@@ -228,6 +228,16 @@ export interface TrendRepo {
   latestAt: number
 }
 
+/** 离线漏洞库索引状态（应用数据目录下 vuln-index.jsonl）。 */
+export interface VulnIndexInfo {
+  /** 公告条数。 */
+  entries: number
+  /** 最后更新时间（Unix 秒）；文件系统不支持时为 null。 */
+  updatedAt: number | null
+  /** 索引文件体积（字节）。 */
+  bytes: number
+}
+
 /** 两次扫描的对比结果。 */
 export interface HistoryCompare {
   /** 基线条目。 */
