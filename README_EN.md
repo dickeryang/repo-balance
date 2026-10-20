@@ -224,7 +224,7 @@ repo-balance/
 ├── ui/                       # Vue 3 frontend project
 │   ├── src/
 │   │   ├── views/            # Views (connect / scan / report / history)
-│   │   ├── components/       # Shared components (TopBar / RadarChart)
+│   │   ├── components/       # Shared components (TopBar / RadarChart / TrendChart)
 │   │   ├── stores/           # Pinia state stores
 │   │   ├── ipc/              # IPC wrapper (commands + events)
 │   │   ├── styles/           # Theme styles (14 CSS variables)
@@ -289,6 +289,8 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 - [x] **Large-repo throttle** — limit history traversal to the newest N commits / last N days (CLI `--max-commits` / `--since-days`, GUI "History Scope"); limited scans are labelled in the CLI, report page and exports
 - [x] **Scan scale estimate** — the connect view shows commits / files / size and an estimated duration (object count and duration are extrapolated from a sample); large repos get a suggested limit that can be applied in one click
 - [x] **Custom rules** — define team-specific checks in JSON (regex + path glob + severity + category + advice) and turn your own conventions into reproducible findings; managed via GUI forms with JSON import / export, and `--rules FILE` on the CLI; regex matching is linear-time, matched samples are masked, and each rule is capped at 50 file findings with an honest truncation notice (format: [`docs/custom-rules.md`](docs/custom-rules.md), Chinese)
+- [x] **Remote repository checkup** — shallow-clone a URL into a temp directory (`TempDir` RAII cleans up automatically) and reuse the local pipeline; the report path is the URL. CLI `rb scan-url <url> [--depth N]`, plus a remote-URL entry on the connect view
+- [x] **Health trend analysis** — the history view charts "total + five dimensions" over time per repository (inline SVG, no chart dependency); N/A dimensions break the line instead of being interpolated, legend chips toggle curves, and per-point tooltips show time and value
 
 ### Next (v0.2 ~ v0.3)
 
@@ -297,9 +299,7 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 ### Mid / long term (v0.5 → v1.0)
 
 - [ ] **One-click advisory DB update / bundled distribution** — the generator script exists (`scripts/build-vuln-index.sh`), but there is no GUI entry yet
-- [ ] **Remote repository checkup** — shallow-clone a URL, scan locally, clean up
 - [ ] **Bulk multi-repository checkup** — scan queue plus an aggregate dashboard for team governance
-- [ ] **Health trend analysis** — quality evolution curves from historical data
 - [ ] **Official GitHub Action**, auto-update, Homebrew / Scoop / Winget distribution
 - [ ] **Team report collaboration** — Report as Code, closing remediation items through PR review
 

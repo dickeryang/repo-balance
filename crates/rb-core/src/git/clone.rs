@@ -18,7 +18,11 @@ pub const DEFAULT_CLONE_DEPTH: i32 = 1;
 /// 注意：libgit2 的本地文件传输不支持浅抓取（shallow fetch），因此
 /// 本地路径源回退为全量克隆——浅克隆语义只对网络 URL 生效。
 pub fn clone_shallow(url: &str, dest: &Path, depth: i32) -> Result<()> {
-    let depth = if depth <= 0 { DEFAULT_CLONE_DEPTH } else { depth };
+    let depth = if depth <= 0 {
+        DEFAULT_CLONE_DEPTH
+    } else {
+        depth
+    };
 
     let mut callbacks = git2::RemoteCallbacks::new();
     // 纯本地语义：克隆过程绝不弹交互式凭证输入，失败直接报错返回。

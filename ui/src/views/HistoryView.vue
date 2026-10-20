@@ -3,12 +3,34 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useScanStore } from '../stores/scan'
 import { useI18n } from '../i18n'
+import TrendChart from '../components/TrendChart.vue'
 
 const store = useScanStore()
 const { t } = useI18n()
 
 const baselineId = ref<string | null>(null)
 const targetId = ref<string | null>(null)
+
+/** 趋势图选中的仓库路径；空串表示跟随「最近一次扫描的仓库」。 */
+const trendRepoPath = ref<string>('')
+
+/** 当前趋势仓库：选中项不在历史里时回退到最近的仓库。 */
+const activeTrendRepo = computed(
+  () => store.trendRepos.find((r) => r.repoPath === trendRepoPath.value) ?? store.trendRepos[0] ?? null,
+)
+
+/** 下拉框双向绑定：显示的是「实际生效」的仓库，写入的是显式选择。 */
+const selectedTrendRepo = computed<string>({
+  get: () => activeTrendRepo.value?.repoPath ?? '',
+  set: (v) => {
+    trendRepoPath.value = v
+  },
+})
+
+/** 当前仓库的趋势点（按保存时间升序）。 */
+const trendPoints = computed(() =>
+  activeTrendRepo.value ? store.trendSeries(activeTrendRepo.value.repoPath) : [],
+)
 
 const compare = computed(() => {
   if (!baselineId.value || !targetId.value) return null
@@ -143,6 +165,23 @@ async function doExport() {
           </div>
         </div>
       </div>
+    </div>
+
+    <div v-if="store.history.length > 0" class="card trend-card">
+      <div class="trend-head">
+        <h2>{{ t('history.trendTitle') }}</h2>
+        <div class="trend-actions">
+          <label class="dim" for="trend-repo">{{ t('history.trendRepo') }}</label>
+          <select id="trend-repo" v-model="selectedTrendRepo" class="repo-select">
+            <option v-for="r in store.trendRepos" :key="r.repoPath" :value="r.repoPath">
+              {{ r.repoName }} · {{ r.count }}{{ t('history.trendCountUnit') }}
+            </option>
+          </select>
+        </div>
+      </div>
+      <p class="dim trend-hint">{{ t('history.trendHint') }}</p>
+      <TrendChart v-if="trendPoints.length > 0" :points="trendPoints" />
+      <p v-if="trendPoints.length < 2" class="dim need-two">{{ t('history.trendNeedTwo') }}</p>
     </div>
 
     <div v-if="compare" class="card compare-panel">
@@ -347,6 +386,41 @@ async function doExport() {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+}
+
+.trend-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.trend-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.repo-select {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  color: var(--text);
+  font-size: 12px;
+  max-width: 320px;
+}
+.repo-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.trend-hint {
+  font-size: 11px;
+  margin-bottom: 12px;
+}
+.need-two {
+  margin-top: 10px;
+  font-size: 11px;
 }
 
 .compare-panel {

@@ -141,7 +141,16 @@ pub async fn start_remote_scan(
     if url.is_empty() {
         return Err("仓库 URL 不能为空".to_owned());
     }
-    launch_scan(app, state, ScanSource::Remote { url, depth: depth.unwrap_or(1) }, config).await
+    launch_scan(
+        app,
+        state,
+        ScanSource::Remote {
+            url,
+            depth: depth.unwrap_or(1),
+        },
+        config,
+    )
+    .await
 }
 
 /// 本地与远程扫描共用的启动流程：规则校验 → CAS 领取扫描权 →

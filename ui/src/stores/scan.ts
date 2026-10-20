@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import * as ipc from '../ipc/commands'
 import { onScanDone, onScanProgress, onScanError } from '../ipc/events'
 import type { UnlistenFn } from '@tauri-apps/api/event'
-import type { RepoSnapshot, ScanReport, CheckerFeedRow, ProgressEvent, ScanConfig, ScaleEstimate, HistoryEntry, HistoryCompare, Finding } from '../types/models'
+import type { RepoSnapshot, ScanReport, CheckerFeedRow, ProgressEvent, ScanConfig, ScaleEstimate, HistoryEntry, HistoryCompare, Finding, TrendPoint, TrendRepo } from '../types/models'
 import { ALL_CHECKER_IDS } from '../types/models'
 
 const DEFAULT_CONFIG: ScanConfig = {
@@ -62,6 +62,18 @@ function totalScoreOf(report: ScanReport): number {
   return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
 }
 
+/**
+ * 总分（已覆盖维度平均），全部维度未覆盖时返回 null。
+ *
+ * 与 totalScoreOf 的差异：趋势图必须区分「0 分」与「无结论」，否则会把
+ * N/A 画成断崖下跌（诚信口径：未覆盖维度不参与、不伪造）。
+ */
+function totalOrNullOf(report: ScanReport): number | null {
+  const scores = report.radarPoints.map((p) => p.score).filter((s): s is number => s !== null)
+  if (scores.length === 0) return null
+  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+}
+
 export const useScanStore = defineStore('scan', () => {
   const currentView = ref<1 | 2 | 3 | 4>(1)
   const selectedPath = ref<string | null>(null)
@@ -105,6 +117,43 @@ export const useScanStore = defineStore('scan', () => {
     if (scores.length === 0) return 0
     return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
   })
+
+  /** 历史中出现过的仓库（按最近一次扫描时间倒序），供趋势图选择。 */
+  const trendRepos = computed<TrendRepo[]>(() => {
+    const map = new Map<string, TrendRepo>()
+    for (const e of history.value) {
+      const cur = map.get(e.repoPath)
+      if (cur) {
+        cur.count += 1
+        if (e.savedAt > cur.latestAt) cur.latestAt = e.savedAt
+      } else {
+        map.set(e.repoPath, {
+          repoPath: e.repoPath,
+          repoName: e.repoName,
+          count: 1,
+          latestAt: e.savedAt,
+        })
+      }
+    }
+    return [...map.values()].sort((a, b) => b.latestAt - a.latestAt)
+  })
+
+  /**
+   * 指定仓库的趋势点（按保存时间升序）。
+   *
+   * 维度评分取自当次报告的 radarPoints：N/A 维度保持 null，趋势图据此断线，
+   * 不做插值（插值等于伪造未覆盖维度的结论）。
+   */
+  function trendSeries(repoPath: string): TrendPoint[] {
+    return history.value
+      .filter((e) => e.repoPath === repoPath)
+      .map((e) => ({
+        savedAt: e.savedAt,
+        total: totalOrNullOf(e.report),
+        dims: Object.fromEntries(e.report.radarPoints.map((p) => [p.key, p.score])),
+      }))
+      .sort((a, b) => a.savedAt - b.savedAt)
+  }
 
   async function selectDirectory() {
     const path = await ipc.selectDirectory()
@@ -467,6 +516,8 @@ export const useScanStore = defineStore('scan', () => {
     scaleEstimate,
     filteredFindings,
     totalScore,
+    trendRepos,
+    trendSeries,
     selectDirectory,
     fetchRepoInfo,
     initHistory,

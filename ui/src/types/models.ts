@@ -157,6 +157,28 @@ export interface HistoryEntry {
   report: ScanReport
 }
 
+/** 趋势图中的一次扫描（已按保存时间升序排列）。 */
+export interface TrendPoint {
+  /** 保存时间（epoch ms）。 */
+  savedAt: number
+  /** 总分（已覆盖维度平均）；全部维度未覆盖时为 null。 */
+  total: number | null
+  /** 五维当次评分，键与 radarPoints.key 一致；null = 该维度当次未覆盖。 */
+  dims: Record<string, number | null>
+}
+
+/** 趋势图仓库选项：历史中出现过的仓库及其扫描次数。 */
+export interface TrendRepo {
+  /** 仓库路径（分组键）。 */
+  repoPath: string
+  /** 仓库名（路径末段）。 */
+  repoName: string
+  /** 该仓库的历史条数。 */
+  count: number
+  /** 最近一次保存时间（epoch ms），用于倒序排列。 */
+  latestAt: number
+}
+
 /** 两次扫描的对比结果。 */
 export interface HistoryCompare {
   /** 基线条目。 */

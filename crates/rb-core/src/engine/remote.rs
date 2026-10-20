@@ -60,14 +60,20 @@ mod tests {
         source.commit(&[("big.bin", &[0u8; 2 * 1024 * 1024])], "add big file");
         let url = source.path().to_str().unwrap();
 
-        let report = scan_remote(url, &registry_big_files(), None, None, &ScanConfig::default(), 1)
-            .unwrap();
+        let report = scan_remote(
+            url,
+            &registry_big_files(),
+            None,
+            None,
+            &ScanConfig::default(),
+            1,
+        )
+        .unwrap();
         // 报告路径指向临时目录（编排层展示时以 URL 为准），但结论真实产出。
-        assert!(report.repo_path.starts_with(std::env::temp_dir().to_str().unwrap()));
-        assert!(
-            !report.findings.is_empty(),
-            "克隆产物应命中大文件结论"
-        );
+        assert!(report
+            .repo_path
+            .starts_with(std::env::temp_dir().to_str().unwrap()));
+        assert!(!report.findings.is_empty(), "克隆产物应命中大文件结论");
     }
 
     /// 不命中路径：干净仓库克隆扫描后零 finding、分数为满分。
@@ -77,8 +83,15 @@ mod tests {
         source.commit(&[("README.md", b"hello" as &[u8])], "init");
         let url = source.path().to_str().unwrap();
 
-        let report = scan_remote(url, &registry_big_files(), None, None, &ScanConfig::default(), 1)
-            .unwrap();
+        let report = scan_remote(
+            url,
+            &registry_big_files(),
+            None,
+            None,
+            &ScanConfig::default(),
+            1,
+        )
+        .unwrap();
         assert!(report.findings.is_empty(), "干净仓库不应有 finding");
     }
 
@@ -103,8 +116,15 @@ mod tests {
         source.commit(&[("README.md", b"hello" as &[u8])], "init");
         let url = source.path().to_str().unwrap();
 
-        let report = scan_remote(url, &registry_big_files(), None, None, &ScanConfig::default(), 0)
-            .unwrap();
+        let report = scan_remote(
+            url,
+            &registry_big_files(),
+            None,
+            None,
+            &ScanConfig::default(),
+            0,
+        )
+        .unwrap();
         assert!(report.findings.is_empty());
     }
 
