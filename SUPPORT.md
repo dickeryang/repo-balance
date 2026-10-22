@@ -15,19 +15,19 @@
 ## 二、常见问题
 
 **Q：应用能联网吗？会上传我的仓库内容吗？**
-不会。仓衡无任何 HTTP 客户端，CSP 为 `default-src 'self'`，权限不含 `fs`/`shell`；扫描只读。详见 [SECURITY.md](SECURITY.md) 的「设计层面的安全边界」。
+不会。仓衡无任何 HTTP 客户端，CSP 为 `default-src 'self'`，权限不含 `fs`/`shell`；扫描只读——除用户在设置页保存的 `.repobalance-ignore` 外，不写入被检查的仓库。详见 [SECURITY.md](SECURITY.md) 的「设计层面的安全边界」。
 
 **Q：macOS 提示「无法打开，因为 Apple 无法检查其是否包含恶意软件」，Windows 出现 SmartScreen 警告？**
 当前发布包**未做代码签名**（开源项目常见）。macOS：右键应用 → 打开，或执行 `xattr -dr com.apple.quarantine /Applications/仓衡.app`；Windows：点「更多信息」→「仍要运行」。介意安全风险可自行从源码构建。
 
 **Q：某个大文件 / 某个目录不该被算进来。**
-在仓库根目录新建 `.repobalance-ignore`（语法同 `.gitignore`，支持 `!` 否定）。构建产物目录（`target/`、`node_modules/` 等）已默认忽略。
+设置页 →「忽略规则」，选定仓库后直接编辑仓库根目录的 `.repobalance-ignore`（语法同 `.gitignore`，支持 `!` 否定）；点「试算」可在保存前看清哪些文件会被忽略（不落盘求值，口径与扫描一致）。构建产物目录（`target/`、`node_modules/` 等）已默认忽略，可用 `!` 放行其中个别文件；CI 中可用 `rb ignore <path>` 只读校验。完整语法见 [docs/ignore-rules.md](docs/ignore-rules.md)。
 
 **Q：某个密钥应该被检出但没检出 / 明明是示例值却被报出来。**
 属规则准确性问题，请开 issue 并附上最小复现（脱敏后），我会调整规则或停用词白名单；**不要**为此走私密安全渠道。
 
 **Q：扫描很慢或卡住。**
-先确认仓库规模（提交数、文件数）；当前版本对超大仓库的历史遍历尚无时间窗限制（见 roadmap「大仓库性能」）。扫描可随时取消，会给出部分报告。
+先用连接页的「扫描规模预估」看提交数 / 文件数 / 体积与粗估耗时；大仓库可在设置页「历史范围」限制为「最多 N 个提交」或「最近 N 天」（CLI `--max-commits` / `--since-days`），受限扫描会在报告与导出中如实标注范围。扫描可随时取消，会给出已完成部分的部分报告。
 
 **Q：「总分」是怎么算的？为什么某维度显示 N/A？**
 总分 = **已覆盖维度**的平均分；没有注册检查器的维度显示 N/A，而不是假满分。各 finding 按严重度扣分（Critical −15 / Warning −8 / Info −3），单维度下限 0。

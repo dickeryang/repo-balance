@@ -16,6 +16,17 @@
 //! （`target/`、`node_modules/` 等）：用户规则声明在后因此优先，
 //! 可用 `!` 否定取消默认忽略（如 `!target/keep.bin`）。
 
+use std::collections::HashSet;
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+
+/// 忽略规则文件名（位于仓库根目录）。
+pub const IGNORE_FILE_NAME: &str = ".repobalance-ignore";
+
+/// 写入时的临时文件名（原子写：先落临时文件再 rename）。
+const IGNORE_TMP_FILE_NAME: &str = ".repobalance-ignore.tmp";
+
 /// 内置默认忽略的目录模式（构建产物 / 依赖缓存，非仓库源资产）。
 const DEFAULT_IGNORE_PATTERNS: &[&str] = &[
     "target/",
@@ -54,19 +65,47 @@ impl IgnoreRule {
         Self { patterns }
     }
 
-    /// 从仓库根目录读取 `.repobalance-ignore` 并解析；文件不存在时返回空规则。
-    pub fn load_from(workdir: &std::path::Path) -> Self {
-        let path = workdir.join(".repobalance-ignore");
-        let mut rule = match std::fs::read_to_string(&path) {
-            Ok(text) => Self::parse(&text),
-            Err(_) => Self::default(),
-        };
+    /// 解析用户规则并在其**之前**注入内置默认忽略（用户规则声明在后因此优先）。
+    ///
+    /// 供 GUI 编辑器试算使用：尚未保存的规则必须按「保存后的真实口径」求值，
+    /// 否则试算结论会与扫描结论不一致（试算说忽略、扫描照旧报警）。
+    pub fn parse_with_defaults(text: &str) -> Self {
+        let mut rule = Self::parse(text);
         let defaults: Vec<Pattern> = DEFAULT_IGNORE_PATTERNS
             .iter()
             .filter_map(|p| parse_line(p))
             .collect();
         rule.patterns.splice(0..0, defaults);
         rule
+    }
+
+    /// 从仓库根目录读取 `.repobalance-ignore` 并解析（含内置默认忽略）。
+    ///
+    /// 文件不存在 / 读取失败时退化为「仅内置默认忽略」。
+    pub fn load_from(workdir: &Path) -> Self {
+        let path = workdir.join(IGNORE_FILE_NAME);
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        Self::parse_with_defaults(&text)
+    }
+
+    /// 原子写入 `.repobalance-ignore`（先落临时文件再 rename，避免半截写入）。
+    ///
+    /// 写入的是**纯用户规则**：内置默认忽略由 [`Self::parse_with_defaults`] 在
+    /// 载入时注入，不写进文件（否则用户无法用 `!` 干净地否定某一项）。
+    pub fn save_to(workdir: &Path, text: &str) -> std::io::Result<()> {
+        let tmp = workdir.join(IGNORE_TMP_FILE_NAME);
+        if let Err(e) = std::fs::write(&tmp, text) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e);
+        }
+        match std::fs::rename(&tmp, workdir.join(IGNORE_FILE_NAME)) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // rename 失败时清理临时文件，错误以 rename 为准返回。
+                let _ = std::fs::remove_file(&tmp);
+                Err(e)
+            }
+        }
     }
 
     /// 判断路径是否被忽略（正斜杠相对路径）。
@@ -80,6 +119,72 @@ impl IgnoreRule {
         }
         ignored
     }
+}
+
+/// 内置默认忽略模式（只读）：供 GUI 展示「哪些目录默认就被忽略」。
+pub fn default_patterns() -> &'static [&'static str] {
+    DEFAULT_IGNORE_PATTERNS
+}
+
+/// 规则静态检查的问题类别。
+///
+/// 只描述类别、不携带界面文案：文案由 GUI 按 locale 渲染（内核不写死语言）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IgnoreLintKind {
+    /// 模式不含有效路径段（如 `/`、`!`），永不匹配任何文件。
+    EmptyPattern,
+    /// 用反斜杠分隔路径（引擎按 `/` 分段，这类规则不会匹配到任何文件）。
+    Backslash,
+    /// 与前面某条规则完全相同：按「最后匹配胜出」语义，前面那条无实际效果。
+    Duplicate,
+}
+
+/// 单条规则的静态检查结论。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IgnoreLint {
+    /// 行号（从 1 计，与编辑器行号一致）。
+    pub line: usize,
+    /// 该行 trim 后的原始模式。
+    pub pattern: String,
+    /// 问题类别。
+    pub kind: IgnoreLintKind,
+}
+
+/// 静态检查**用户规则**文本，返回可疑行（按行号升序；内置默认忽略不参与）。
+///
+/// 检查项都是「写了却不会生效」的静默情况：用户以为忽略了某路径，扫描照旧
+/// 报警——这比直接报错更难发现，所以要在保存前就提示。
+pub fn lint(text: &str) -> Vec<IgnoreLint> {
+    fn push(out: &mut Vec<IgnoreLint>, line: usize, pattern: &str, kind: IgnoreLintKind) {
+        out.push(IgnoreLint {
+            line,
+            pattern: pattern.to_owned(),
+            kind,
+        });
+    }
+
+    let mut out = Vec::new();
+    let mut seen: HashSet<&str> = HashSet::new();
+    for (idx, raw) in text.lines().enumerate() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let line = idx + 1;
+        if let Some(pat) = parse_line(trimmed) {
+            if pat.segments.is_empty() {
+                push(&mut out, line, trimmed, IgnoreLintKind::EmptyPattern);
+            }
+        }
+        if trimmed.contains('\\') {
+            push(&mut out, line, trimmed, IgnoreLintKind::Backslash);
+        }
+        if !seen.insert(trimmed) {
+            push(&mut out, line, trimmed, IgnoreLintKind::Duplicate);
+        }
+    }
+    out
 }
 
 impl Pattern {
@@ -213,7 +318,9 @@ fn glob_match_single(pat: &str, text: &str) -> bool {
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
-    use super::IgnoreRule;
+    use super::{
+        default_patterns, lint, IgnoreLintKind, IgnoreRule, IGNORE_FILE_NAME, IGNORE_TMP_FILE_NAME,
+    };
 
     #[test]
     fn 空内容_不忽略任何路径() {
@@ -341,5 +448,97 @@ mod tests {
         assert!(rule.is_ignored("a.bin"));
         assert!(rule.is_ignored("vendor/lib.a"));
         assert!(!rule.is_ignored("a.txt"));
+    }
+
+    /// 试算口径必须与扫描口径一致：编辑器里未保存的文本按「保存后」求值。
+    #[test]
+    fn parse_with_defaults_与_load_from_口径一致() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(IGNORE_FILE_NAME),
+            "*.bin\n!target/keep.bin\n",
+        )
+        .unwrap();
+        let from_file = IgnoreRule::load_from(dir.path());
+        let from_text = IgnoreRule::parse_with_defaults("*.bin\n!target/keep.bin\n");
+        for path in [
+            "a.bin",
+            "sub/a.bin",
+            "target/debug/rb",
+            "target/keep.bin",
+            "src/main.rs",
+        ] {
+            assert_eq!(
+                from_file.is_ignored(path),
+                from_text.is_ignored(path),
+                "路径 {path} 的试算口径与扫描口径不一致"
+            );
+        }
+    }
+
+    /// 保存 → 读回的往返：内容与结论都保持（含 `!` 否定内置默认）。
+    #[test]
+    fn save_to_写入后_load_from_可读回() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            !dir.path().join(IGNORE_FILE_NAME).exists(),
+            "初始不应存在忽略文件"
+        );
+        IgnoreRule::save_to(dir.path(), "*.bin\n!target/keep.bin\n").unwrap();
+        assert!(
+            !dir.path().join(IGNORE_TMP_FILE_NAME).exists(),
+            "原子写不应残留临时文件"
+        );
+        let text = std::fs::read_to_string(dir.path().join(IGNORE_FILE_NAME)).unwrap();
+        assert_eq!(text, "*.bin\n!target/keep.bin\n");
+        let rule = IgnoreRule::load_from(dir.path());
+        assert!(rule.is_ignored("a.bin"));
+        assert!(rule.is_ignored("target/debug/rb"), "内置默认仍生效");
+        assert!(!rule.is_ignored("target/keep.bin"), "用户否定规则优先");
+    }
+
+    #[test]
+    fn default_patterns_含构建产物目录() {
+        let defaults = default_patterns();
+        assert!(defaults.contains(&"target/"));
+        assert!(defaults.contains(&"node_modules/"));
+    }
+
+    /// 空模式（`/`、`!`）解析后无路径段，永不匹配——必须被静态检查标出。
+    #[test]
+    fn lint_空模式被标出() {
+        let lints = lint("# 注释\n\n/\n!\n*.bin\n");
+        assert_eq!(lints.len(), 2, "{lints:?}");
+        assert_eq!(lints[0].line, 3);
+        assert_eq!(lints[0].kind, IgnoreLintKind::EmptyPattern);
+        assert_eq!(lints[1].line, 4);
+        assert!(lints.iter().all(|l| l.kind == IgnoreLintKind::EmptyPattern));
+    }
+
+    #[test]
+    fn lint_反斜杠规则被标出() {
+        let lints = lint("src\\dist\n");
+        assert_eq!(lints.len(), 1, "{lints:?}");
+        assert_eq!(lints[0].kind, IgnoreLintKind::Backslash);
+        assert_eq!(lints[0].pattern, "src\\dist");
+    }
+
+    /// 重复规则只标第二次及以后（第一次出现是正常的）。
+    #[test]
+    fn lint_重复规则标后一条() {
+        let lints = lint("*.bin\n# 说明\n*.bin\n*.bin\ndocs/\n");
+        assert_eq!(lints.len(), 2, "{lints:?}");
+        assert_eq!(
+            lints.iter().map(|l| l.line).collect::<Vec<_>>(),
+            vec![3, 4],
+            "重复按行号升序标出"
+        );
+        assert!(lints.iter().all(|l| l.kind == IgnoreLintKind::Duplicate));
+    }
+
+    #[test]
+    fn lint_正常规则无告警() {
+        let lints = lint("# 构建产物\n*.bin\n/dist/\n!keep.bin\n\n");
+        assert!(lints.is_empty(), "{lints:?}");
     }
 }

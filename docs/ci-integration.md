@@ -63,6 +63,20 @@ rb scan . --ci --rules ./ci/repobalance-rules.json
 - 规则文件不存在 / JSON 非法 / 正则无法编译一律**快速失败**（退出码 1），不做静默降级；
 - 格式与行为口径（命中聚合、样本掩码、单规则 50 文件上限）见 [`custom-rules.md`](custom-rules.md)。
 
+## 忽略规则校验
+
+`.repobalance-ignore` 随仓库提交，但「写了却不会生效」的规则既不会报错、也不会生效
+（反斜杠路径、空模式、重复规则）——CI 里加一行就能在合并前拦住：
+
+```bash
+rb ignore .
+```
+
+- **只读**校验，不写任何文件；打印用户规则条数 + 内置默认条数；
+- 存在可疑规则时逐条列出「第 N 行 `模式`：原因」并以退出码 1 结束；仓库未配置忽略规则时退出码 0；
+- 与 GUI 设置页「忽略规则」的试算同一口径（内置默认 + 用户规则，最后匹配胜出），
+  语法与完整口径见 [`ignore-rules.md`](ignore-rules.md)。
+
 ### 退出码
 
 | 码 | 含义 |
@@ -70,6 +84,8 @@ rb scan . --ci --rules ./ci/repobalance-rules.json
 | 0 | 无 Critical 问题 |
 | 1 | 运行错误（仓库无法打开等） |
 | 2 | 存在 Critical 问题（CI 应标记失败） |
+
+> `rb ignore` 独立口径：0 = 检查通过（含仓库未配置忽略规则），1 = 存在可疑规则 / 读取失败。
 
 ## GitHub Actions
 

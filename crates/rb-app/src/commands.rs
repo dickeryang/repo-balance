@@ -14,10 +14,12 @@ use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 
 use crate::dto::{
-    CustomRuleDto, RepoSnapshotDto, ScaleEstimateDto, ScanReportDto, VulnIndexInfoDto,
+    CustomRuleDto, IgnoreCheckDto, RepoSnapshotDto, ScaleEstimateDto, ScanReportDto,
+    VulnIndexInfoDto,
 };
 use crate::error::map_error;
 use crate::state::ScanState;
+use rb_core::model::slice_meta::FileMeta;
 use rb_core::model::vuln::VulnIndex;
 use rb_core::rules::{self, CustomRule};
 
@@ -26,6 +28,12 @@ const HISTORY_FILE_NAME: &str = "scan-history.json";
 
 /// 离线漏洞库索引文件名（存放于应用数据目录；缺失即不做漏洞匹配）。
 const VULN_INDEX_FILE_NAME: &str = "vuln-index.jsonl";
+
+/// 忽略规则文件名（位于**被检查仓库**根目录，与 rb-core 同源定义）。
+const IGNORE_FILE_NAME: &str = rb_core::ignore::IGNORE_FILE_NAME;
+
+/// 忽略规则试算的样本上限（超出只回传前 N 个，并以 `truncated` 如实标注）。
+pub const IGNORE_SAMPLE_LIMIT: usize = 20;
 
 /// 当前 Unix 秒（系统调用失败时回退 0——仅用于时间窗换算）。
 fn now_secs() -> i64 {
@@ -410,6 +418,87 @@ pub async fn vuln_index_info(app: tauri::AppHandle) -> Result<Option<VulnIndexIn
         updated_at,
         bytes: meta.len(),
     }))
+}
+
+/// 读取仓库根的 `.repobalance-ignore`；文件不存在返回 `Ok(None)`（仓库尚未配置忽略规则）。
+#[tauri::command]
+pub async fn read_ignore_rules(path: String) -> Result<Option<String>, String> {
+    let file = PathBuf::from(&path).join(IGNORE_FILE_NAME);
+    match std::fs::read_to_string(&file) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("读取 {IGNORE_FILE_NAME} 失败: {e}")),
+    }
+}
+
+/// 保存忽略规则到仓库根（原子写）。
+///
+/// 注意这是**写被检查仓库**的唯一入口：忽略规则必须随仓库走（.gitignore 同理），
+/// 否则换台机器、换个同事就失效了。内容不落盘校验——lint 提示在试算时已给出，
+/// 用户有权保存带注释、带待定条目的中间态。
+#[tauri::command]
+pub async fn write_ignore_rules(path: String, content: String) -> Result<(), String> {
+    let dir = PathBuf::from(&path);
+    if !dir.is_dir() {
+        return Err("目标仓库目录不存在或不可访问".to_owned());
+    }
+    rb_core::ignore::IgnoreRule::save_to(&dir, &content)
+        .map_err(|e| format!("保存 {IGNORE_FILE_NAME} 失败: {e}"))
+}
+
+/// 内置默认忽略模式（只读展示：让用户知道哪些目录已被默认忽略、可用 `!` 否定）。
+#[tauri::command]
+pub async fn ignore_defaults() -> Result<Vec<String>, String> {
+    Ok(rb_core::ignore::default_patterns()
+        .iter()
+        .map(|p| (*p).to_owned())
+        .collect())
+}
+
+/// 忽略规则试算：**不落盘**，按「保存后的真实口径」统计影响面并做静态检查。
+///
+/// 口径与扫描完全一致（内置默认 + 用户规则，最后匹配胜出），否则试算说忽略、
+/// 扫描照旧报警，比没有试算更糟。遍历工作区文件树，故放入 spawn_blocking。
+#[tauri::command]
+pub async fn check_ignore_rules(path: String, content: String) -> Result<IgnoreCheckDto, String> {
+    let path_buf = PathBuf::from(&path);
+    tauri::async_runtime::spawn_blocking(move || {
+        let repo = rb_core::git::GitRepo::open(&path_buf).map_err(map_error)?;
+        let files = repo.workdir_file_metas().map_err(map_error)?;
+        Ok(summarize_ignore(&files, &content))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 忽略规则试算的统计部分（纯函数，便于单测）。
+///
+/// 与扫描共用 [`rb_core::ignore::IgnoreRule::parse_with_defaults`]：内置默认 +
+/// 用户规则、最后匹配胜出；样本超出上限时用 `truncated` 如实标注，
+/// 不假装列表是完整的。
+fn summarize_ignore(files: &[FileMeta], content: &str) -> IgnoreCheckDto {
+    let rule = rb_core::ignore::IgnoreRule::parse_with_defaults(content);
+    let mut ignored_count = 0usize;
+    let mut ignored_bytes = 0u64;
+    let mut samples = Vec::new();
+    for f in files {
+        if !rule.is_ignored(&f.path) {
+            continue;
+        }
+        ignored_count += 1;
+        ignored_bytes += f.size;
+        if samples.len() < IGNORE_SAMPLE_LIMIT {
+            samples.push(f.path.clone());
+        }
+    }
+    IgnoreCheckDto {
+        total_files: files.len(),
+        ignored_count,
+        ignored_bytes,
+        truncated: ignored_count > samples.len(),
+        samples,
+        lints: rb_core::ignore::lint(content),
+    }
 }
 
 /// 历史范围受限时的告知文案；未限流（两项均空/0）返回 `None`。
@@ -1006,9 +1095,21 @@ footer {{ color:#8b95ab; font-size:12px; text-align:center; margin-top:32px; }}
 #[cfg(test)]
 #[allow(non_snake_case)]
 mod tests {
-    use super::{custom_rules_json, scope_note_of, validate_history_json, validate_vuln_index};
+    use super::{
+        custom_rules_json, scope_note_of, summarize_ignore, validate_history_json,
+        validate_vuln_index, IGNORE_SAMPLE_LIMIT,
+    };
     use crate::dto::{CustomRuleDto, ScanConfigDto};
     use rb_core::model::finding::{Category, Severity};
+    use rb_core::model::slice_meta::FileMeta;
+
+    /// 构造一条工作区文件元数据（试算的输入单元）。
+    fn file_meta(path: &str, size: u64) -> FileMeta {
+        FileMeta {
+            path: path.into(),
+            size,
+        }
+    }
 
     /// 构造一条最小可用规则的 DTO。
     fn rule_dto(id: &str) -> CustomRuleDto {
@@ -1196,5 +1297,49 @@ mod tests {
         let html = super::report_to_html(&report);
         assert!(html.contains("class=\"scope-note\""), "缺少范围提示块");
         assert!(html.contains("最新 10 个提交"), "缺少范围文案");
+    }
+
+    /// 试算：内置默认与用户规则共同决定结果，字节数同步统计。
+    #[test]
+    fn 忽略试算_默认与用户规则共同生效() {
+        let files = vec![
+            file_meta("src/main.rs", 10),
+            file_meta("target/debug/rb", 100),
+            file_meta("assets/a.bin", 200),
+        ];
+        let dto = summarize_ignore(&files, "*.bin\n");
+        assert_eq!(dto.total_files, 3);
+        assert_eq!(dto.ignored_count, 2, "target/ 走默认忽略、*.bin 走用户规则");
+        assert_eq!(dto.ignored_bytes, 300);
+        assert_eq!(
+            dto.samples,
+            vec!["target/debug/rb".to_owned(), "assets/a.bin".to_owned()]
+        );
+        assert!(!dto.truncated);
+        assert!(dto.lints.is_empty());
+    }
+
+    /// 试算：被忽略文件数超过样本上限时 `truncated=true` 且样本数封顶（不假装完整）。
+    #[test]
+    fn 忽略试算_样本超出上限时如实标注() {
+        let files: Vec<FileMeta> = (0..IGNORE_SAMPLE_LIMIT + 5)
+            .map(|i| file_meta(&format!("dist/{i}.o"), 1))
+            .collect();
+        let dto = summarize_ignore(&files, "");
+        assert_eq!(dto.ignored_count, IGNORE_SAMPLE_LIMIT + 5);
+        assert_eq!(dto.samples.len(), IGNORE_SAMPLE_LIMIT);
+        assert!(dto.truncated, "超上限必须标注截断");
+    }
+
+    /// 试算同时返回静态检查结论（与 CLI `rb ignore` 的 lint 同一口径）。
+    #[test]
+    fn 忽略试算_附带静态检查结论() {
+        let dto = summarize_ignore(&[file_meta("src/main.rs", 1)], "src\\dist\n");
+        assert_eq!(dto.lints.len(), 1);
+        assert_eq!(
+            dto.lints[0].kind,
+            rb_core::ignore::IgnoreLintKind::Backslash
+        );
+        assert_eq!(dto.ignored_count, 0, "反斜杠规则不匹配任何文件");
     }
 }

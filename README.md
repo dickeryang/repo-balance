@@ -196,6 +196,14 @@ cargo run -p rb-core --bin rb scan ./demo-repo
 
 输出仓库摘要 + 体检结论（finding 列表含严重度、证据、修复建议）。
 
+除体检外，还可**只读校验忽略规则**（与 GUI 编辑器「试算」同一口径，不写任何文件）：
+
+```bash
+cargo run -p rb-core --bin rb ignore ./demo-repo
+```
+
+打印用户规则条数 + 内置默认条数，并列出「写了却不会生效」的规则（空模式 / 反斜杠 / 重复）；存在可疑规则时退出码为 1，可放进 CI 或 pre-commit。
+
 ## 项目结构
 
 ```
@@ -213,7 +221,7 @@ repo-balance/
 │   └── rb-app/              # Tauri 2 桌面壳
 │       ├── src/
 │       │   ├── main.rs       # Tauri Builder 入口
-│       │   ├── commands.rs   # IPC 命令（扫描 / 历史 / 规则 / 导出）
+│       │   ├── commands.rs   # IPC 命令（扫描 / 历史 / 规则 / 忽略规则 / 导出）
 │       │   ├── dto.rs        # camelCase DTO 镜像层
 │       │   ├── error.rs      # 错误映射
 │       │   └── state.rs      # 扫描状态管理
@@ -227,15 +235,17 @@ repo-balance/
 │   │   ├── components/       # 通用组件（TopBar/RadarChart/TrendChart）
 │   │   ├── stores/           # Pinia 状态管理
 │   │   ├── ipc/              # IPC 封装（命令+事件）
+│   │   ├── utils/            # 纯函数（与渲染分离，便于单测）
 │   │   ├── styles/           # 主题样式（14 CSS 变量）
 │   │   ├── test/             # 测试环境准备（内存 localStorage）
 │   │   └── types/            # TS 类型镜像
 │   ├── package.json
 │   ├── vite.config.ts
-│   └── vitest.config.ts      # Vitest 配置（node 环境，store 单测）
-├── docs/                     # 文档（路线图 / 自定义规则 / CI 集成 / 演示 GIF）
+│   └── vitest.config.ts      # Vitest 配置（node 环境，store 与纯函数单测）
+├── docs/                     # 文档（路线图 / 自定义规则 / 忽略规则 / CI 集成 / 演示 GIF）
 │   ├── roadmap.md            # 权威路线图（现状盘点 / 阶段目标 / 验收标准）
 │   ├── custom-rules.md       # 自定义规则 JSON 格式与行为口径
+│   ├── ignore-rules.md       # 忽略规则语法、内置默认项与编辑器 / CLI 口径
 │   └── ci-integration.md     # CI 接入指南
 ├── design/                   # 品牌资产
 │   ├── icon.svg              # 应用图标源文件
@@ -250,7 +260,7 @@ repo-balance/
 - **CSP**: `default-src 'self'`（禁止外部资源加载）
 - **权限最小集**: `core:default` + `dialog:allow-open` + `core:event:default`（无 fs/shell）
 - **路径来源**: 仅系统目录选择对话框，无自由文本输入
-- **本地落盘范围**: 仓库本身始终只读；除用户主动导出的报告外，仅在应用数据目录写入 `scan-history.json`（扫描历史）
+- **本地落盘范围**: 除用户主动导出的报告、应用数据目录的 `scan-history.json`（扫描历史）外，仅有一处写入被检查仓库——用户在设置页保存的 `.repobalance-ignore`（忽略规则必须随仓库走，与 `.gitignore` 同理）；不触碰 git 对象库与提交历史
 - **纯本地零网络**: 不发送任何数据到远程服务器
 - **evidence 掩码**: 证据在 rb-core 构造时掩码，导出/IPC 不复原
 - **rb-core 零 tauri 依赖**: 内核可独立编译为 CLI，不耦合 UI 框架
@@ -272,6 +282,7 @@ repo-balance/
 - [x] **报告导出**：JSON / Markdown / HTML（自包含，内联 SVG 雷达图）
 - [x] **扫描历史**：应用数据目录 `scan-history.json` 持久化（旧 localStorage 数据自动迁移），支持两次扫描结果对比（新增/消除的问题项），并可导入 / 导出 JSON 备份
 - [x] **忽略规则**：`.repobalance-ignore`，含否定规则（`!pattern`）；内置默认忽略构建产物目录（`target/`、`node_modules/` 等，可 `!` 否定）
+- [x] **忽略规则编辑器（设置页）**：选定仓库后直接查看 / 修改仓库根目录的 `.repobalance-ignore`；「试算」不落盘求值（内置默认 + 用户规则，口径与扫描完全一致），给出被忽略文件数 / 占比 / 体积与路径样本，并静态检查「写了却不会生效」的规则（空模式 / 反斜杠 / 重复），保存走原子写；CLI `rb ignore <path>` 同口径只读校验（语法与口径见 [`docs/ignore-rules.md`](docs/ignore-rules.md)）
 - [x] **CI 集成**：GitHub Actions 流水线，CLI 模式跑体检并上传报告
 - [x] **国际化**：界面中英文切换（i18n）
 - [x] **大仓库性能闸门**：历史遍历支持「最多 N 个提交」/「最近 N 天」（CLI `--max-commits` / `--since-days`，GUI「历史范围」），受限扫描在 CLI、报告页与导出中如实标注
@@ -280,8 +291,8 @@ repo-balance/
 - [x] **远程仓库体检**：输入 URL 浅克隆到临时目录（`TempDir` RAII 自动清理）后复用本地扫描管线，报告路径以 URL 为准；CLI `rb scan-url <url> [--depth N]`，GUI 连接页支持远程 URL 直扫
 - [x] **健康度趋势分析**：历史页按仓库绘制「总分 + 五维」折线（内联 SVG，无图表依赖）；N/A 维度断线不插值、图例可隐藏曲线、单点 tooltip 标注时间与取值
 - [x] **多仓库批量体检**：一次多选目录形成串行队列，单仓失败不中断整批；汇总对比看板展示整批进度、每仓总分 / 问题数 / 严重数 / 用时并按总分排序，平均分只统计已完成仓库；完成仓库写入历史，可跳回报告页
-- [x] **前端单元测试**：Vitest 覆盖 store 的配置持久化 / 历史合并与迁移 / 评分口径 / 趋势聚合 / 批量调度状态机（20 用例），并接入 CI 质量门禁
-- [x] **独立设置页**：检查器开关 / 阈值 / 历史范围 / 自定义规则 / 忽略规则说明从连接页拆出（顶栏「设置」），连接页只保留「选仓库 → 规模预估 → 开始体检」；配置全局生效、存本机
+- [x] **前端单元测试**：Vitest 覆盖 store 的配置持久化 / 历史合并与迁移 / 评分口径 / 趋势聚合 / 批量调度状态机，以及忽略规则编辑器的纯函数（27 用例），并接入 CI 质量门禁
+- [x] **独立设置页**：检查器开关 / 阈值 / 历史范围 / 自定义规则 / 忽略规则编辑器从连接页拆出（顶栏「设置」），连接页只保留「选仓库 → 规模预估 → 开始体检」；配置全局生效、存本机
 - [x] **离线漏洞库管理**：设置页可导入 JSONL 索引并查看状态（条目数 / 更新时间 / 体积）；先验后写，损坏或空索引不会覆盖既有可用库；纯本地操作，不做网络请求
 
 ### 近期（v0.2 ~ v0.3）

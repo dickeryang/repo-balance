@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use rb_core::checker::ScanConfig;
+use rb_core::ignore::IgnoreLint;
 use rb_core::model::finding::{Category, Finding, Severity};
 use rb_core::model::report::{ScanReport, Scores};
 use rb_core::model::scale::{ScaleEstimate, ScaleLevel};
@@ -232,6 +233,30 @@ pub struct VulnIndexInfoDto {
     pub updated_at: Option<u64>,
     /// 索引文件体积（字节）。
     pub bytes: u64,
+}
+
+/// 忽略规则静态检查结论（直接复用 rb-core 类型，字段均为单词、无需重命名）。
+pub type IgnoreLintDto = IgnoreLint;
+
+/// 忽略规则试算结果 DTO（编辑器「试算」按钮的返回值）。
+///
+/// 全部字段都是**精确值**（工作区文件遍历而来，非采样外推）：试算的意义就在于
+/// 「保存前看清规则到底忽略了多少文件」，含糊的数字不如不给。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IgnoreCheckDto {
+    /// 工作区文件总数。
+    pub total_files: usize,
+    /// 被忽略的文件数。
+    pub ignored_count: usize,
+    /// 被忽略文件的字节总数。
+    pub ignored_bytes: u64,
+    /// 被忽略路径样本（最多 20 个，见 `commands::IGNORE_SAMPLE_LIMIT`）。
+    pub samples: Vec<String>,
+    /// 样本是否因超出上限被截断。
+    pub truncated: bool,
+    /// 规则静态检查结论（行号升序）。
+    pub lints: Vec<IgnoreLintDto>,
 }
 
 /// 全部内置检查器 id（与 rb-core 注册顺序一致）。
@@ -629,5 +654,41 @@ mod tests {
         ] {
             assert!(json.contains(key), "缺少字段 {key}: {json}");
         }
+    }
+
+    /// 忽略规则试算 DTO 字段为 camelCase，lint 类别沿用 snake_case。
+    #[test]
+    fn ignore_check_dto_字段为_camel_case且lint可往返() {
+        let dto = IgnoreCheckDto {
+            total_files: 10,
+            ignored_count: 3,
+            ignored_bytes: 42,
+            samples: vec!["target/debug/rb".into()],
+            truncated: false,
+            lints: vec![IgnoreLint {
+                line: 2,
+                pattern: "src\\dist".into(),
+                kind: rb_core::ignore::IgnoreLintKind::Backslash,
+            }],
+        };
+        let json = serde_json::to_string(&dto).unwrap();
+        for key in [
+            "\"totalFiles\"",
+            "\"ignoredCount\"",
+            "\"ignoredBytes\"",
+            "\"samples\"",
+            "\"truncated\"",
+            "\"lints\"",
+            "\"kind\":\"backslash\"",
+        ] {
+            assert!(json.contains(key), "缺少字段 {key}: {json}");
+        }
+        let back: IgnoreCheckDto = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.ignored_count, 3);
+        assert_eq!(back.lints.len(), 1);
+        assert_eq!(
+            back.lints[0].kind,
+            rb_core::ignore::IgnoreLintKind::Backslash
+        );
     }
 }

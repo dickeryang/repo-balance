@@ -1,5 +1,13 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { CustomRule, RepoSnapshot, ScanReport, ScanConfig, ScaleEstimate, VulnIndexInfo } from '../types/models'
+import type {
+  CustomRule,
+  IgnoreCheck,
+  RepoSnapshot,
+  ScanReport,
+  ScanConfig,
+  ScaleEstimate,
+  VulnIndexInfo,
+} from '../types/models'
 
 /** 批量选择仓库目录（多选）；用户取消返回空数组。 */
 export async function selectDirectories(): Promise<string[]> {
@@ -73,4 +81,29 @@ export async function importCustomRules(): Promise<CustomRule[] | null> {
 /** 导出自定义规则：弹保存对话框并写盘，返回实际路径（取消时为 null）。 */
 export async function exportCustomRules(rules: CustomRule[]): Promise<string | null> {
   return invoke<string | null>('export_custom_rules', { rules })
+}
+
+/** 读取仓库根目录的 `.repobalance-ignore`；文件不存在返回 null。 */
+export async function readIgnoreRules(path: string): Promise<string | null> {
+  return invoke<string | null>('read_ignore_rules', { path })
+}
+
+/**
+ * 保存忽略规则到仓库根目录（原子写）。
+ *
+ * 这是应用**唯一写入被检查仓库**的操作：忽略规则必须随仓库走（与 .gitignore 同理），
+ * 否则换台机器就失效。保存只写这一个文件，不触碰 git 对象库与工作区其它内容。
+ */
+export async function writeIgnoreRules(path: string, content: string): Promise<void> {
+  return invoke<void>('write_ignore_rules', { path, content })
+}
+
+/** 忽略规则试算：不落盘，返回影响面统计与静态检查结论。 */
+export async function checkIgnoreRules(path: string, content: string): Promise<IgnoreCheck> {
+  return invoke<IgnoreCheck>('check_ignore_rules', { path, content })
+}
+
+/** 内置默认忽略模式（构建产物 / 依赖目录），只读展示。 */
+export async function ignoreDefaults(): Promise<string[]> {
+  return invoke<string[]>('ignore_defaults')
 }

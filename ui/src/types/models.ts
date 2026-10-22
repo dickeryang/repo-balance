@@ -238,6 +238,36 @@ export interface VulnIndexInfo {
   bytes: number
 }
 
+/** 忽略规则静态检查的问题类别（与后端 IgnoreLintKind 一致，snake_case）。 */
+export type IgnoreLintKind = 'empty_pattern' | 'backslash' | 'duplicate'
+
+/** 单条规则的静态检查结论（行号从 1 计，与编辑器行号一致）。 */
+export interface IgnoreLint {
+  line: number
+  /** 该行 trim 后的原始模式。 */
+  pattern: string
+  kind: IgnoreLintKind
+}
+
+/**
+ * 忽略规则试算结果：后端按「保存后的真实口径」不落盘求值
+ * （内置默认 + 用户规则，最后匹配胜出），与扫描结论完全一致。
+ */
+export interface IgnoreCheck {
+  /** 工作区文件总数（精确值，非采样）。 */
+  totalFiles: number
+  /** 被忽略的文件数。 */
+  ignoredCount: number
+  /** 被忽略文件字节总数。 */
+  ignoredBytes: number
+  /** 被忽略路径样本（最多 20 个）。 */
+  samples: string[]
+  /** 样本是否因超出上限被截断。 */
+  truncated: boolean
+  /** 规则静态检查结论（行号升序）。 */
+  lints: IgnoreLint[]
+}
+
 /** 两次扫描的对比结果。 */
 export interface HistoryCompare {
   /** 基线条目。 */

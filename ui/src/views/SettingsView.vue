@@ -6,6 +6,7 @@ import { useI18n } from '../i18n'
 import * as ipc from '../ipc/commands'
 import type { VulnIndexInfo } from '../types/models'
 import ConfigPanel from './connect/ConfigPanel.vue'
+import IgnoreRulesEditor from './settings/IgnoreRulesEditor.vue'
 
 const store = useScanStore()
 const { t } = useI18n()
@@ -64,6 +65,11 @@ onMounted(refreshVulnInfo)
 
   <!-- 配置项全局生效，与是否已选仓库无关（进入扫描前改也来得及）。 -->
   <ConfigPanel />
+
+  <!-- 忽略规则按仓库存放（.repobalance-ignore），故编辑器需要选定目标仓库。 -->
+  <div class="card">
+    <IgnoreRulesEditor />
+  </div>
 
   <div class="card">
     <h2>{{ t('vuln.title') }}</h2>

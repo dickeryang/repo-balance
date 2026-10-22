@@ -50,4 +50,4 @@ These constraints are intentional and are not vulnerabilities in themselves. If 
 - **Single source of paths**: only the system directory picker; no free-text path input
 - **Zero network**: no HTTP client is linked in, and no outbound connection is ever made
 - **Masked evidence**: secret values are masked while the evidence is built inside `rb-core`; neither IPC nor exports restore them
-- **Read-only scanning**: repository scripts are never executed and scanned repositories are never modified
+- **Read-only scanning**: repository scripts are never executed and scanned repositories are never modified; the one exception is `.repobalance-ignore` saved from the settings page (ignore rules must travel with the repository) — the git object database and commit history are never touched

@@ -21,6 +21,13 @@ fn main() -> ExitCode {
     if cmd == "--help" || cmd == "-h" {
         return usage();
     }
+    if cmd == "ignore" {
+        let Some(p) = args.next() else {
+            eprintln!("缺少 <path> 参数");
+            return usage();
+        };
+        return cmd_ignore(Path::new(&p));
+    }
     if cmd != "scan" && cmd != "scan-url" {
         eprintln!("未知命令: {cmd}");
         return usage();
@@ -477,9 +484,63 @@ fn json_escape(s: &str) -> String {
 }
 
 /// 用法提示路径统一为非零退出码。
+/// `rb ignore <path>`：只读校验仓库根的忽略规则（不写入、不改动仓库）。
+///
+/// 与 GUI 编辑器「试算」的静态检查同一口径：把「写了却不会生效」的规则
+/// 在进入版本库之前暴露出来（这类规则不会报错，只会静默失效）。
+fn cmd_ignore(path: &Path) -> ExitCode {
+    let file = path.join(rb_core::ignore::IGNORE_FILE_NAME);
+    let text = match std::fs::read_to_string(&file) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            println!(
+                "{} 未找到：当前仅 {} 条内置默认忽略生效",
+                rb_core::ignore::IGNORE_FILE_NAME,
+                rb_core::ignore::default_patterns().len()
+            );
+            return ExitCode::SUCCESS;
+        }
+        Err(e) => {
+            eprintln!("读取 {} 失败: {e}", rb_core::ignore::IGNORE_FILE_NAME);
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let user_rules = text
+        .lines()
+        .filter(|l| {
+            let t = l.trim();
+            !t.is_empty() && !t.starts_with('#')
+        })
+        .count();
+    println!(
+        "{}：{} 条用户规则 + {} 条内置默认忽略",
+        file.display(),
+        user_rules,
+        rb_core::ignore::default_patterns().len()
+    );
+
+    let lints = rb_core::ignore::lint(&text);
+    if lints.is_empty() {
+        println!("规则检查通过：没有「写了却不会生效」的规则");
+        return ExitCode::SUCCESS;
+    }
+    for l in &lints {
+        let why = match l.kind {
+            rb_core::ignore::IgnoreLintKind::EmptyPattern => "不含有效路径段，永不匹配任何文件",
+            rb_core::ignore::IgnoreLintKind::Backslash => "使用反斜杠分隔，请改用正斜杠 /",
+            rb_core::ignore::IgnoreLintKind::Duplicate => "与前面某条规则重复，前面那条无实际效果",
+        };
+        eprintln!("第 {} 行 `{}`：{why}", l.line, l.pattern);
+    }
+    eprintln!("共 {} 处可疑规则", lints.len());
+    ExitCode::FAILURE
+}
+
 fn usage() -> ExitCode {
     eprintln!("用法: rb scan <path> [选项]");
     eprintln!("      rb scan-url <url> [选项]");
+    eprintln!("      rb ignore <path>");
     eprintln!();
     eprintln!("选项:");
     eprintln!("  --ci              CI 模式：简洁输出，Critical 存在时退出码 2");
@@ -493,9 +554,13 @@ fn usage() -> ExitCode {
     eprintln!("scan-url 专用:");
     eprintln!("  --depth N         浅克隆深度（默认 1，即只取最新一次提交）");
     eprintln!();
-    eprintln!("退出码:");
+    eprintln!("退出码（scan / scan-url）:");
     eprintln!("  0  无 Critical 问题");
     eprintln!("  1  运行错误");
     eprintln!("  2  存在 Critical 问题");
+    eprintln!();
+    eprintln!("退出码（rb ignore）:");
+    eprintln!("  0  规则检查通过（或仓库未配置忽略规则）");
+    eprintln!("  1  存在「写了却不会生效」的可疑规则 / 读取失败");
     ExitCode::from(1)
 }

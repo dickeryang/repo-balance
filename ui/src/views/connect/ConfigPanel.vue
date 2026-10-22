@@ -108,9 +108,8 @@ function setCheckerEnabled(id: string, on: boolean) {
     </div>
     <p class="dim hint">{{ t('config.scopeHint') }}</p>
     <p class="dim hint">{{ t('config.hint') }}</p>
-    <p class="dim hint">
-      {{ t('config.ignoreHint') }} <code>.repobalance-ignore</code> {{ t('config.ignoreHint2') }}
-    </p>
+    <!-- 忽略规则已有独立编辑器（设置页下节），此处只做指向，不重复语法说明。 -->
+    <p class="dim hint">{{ t('config.ignoreHint') }}</p>
     <CustomRulesEditor />
   </div>
 </template>

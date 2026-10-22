@@ -196,6 +196,14 @@ cargo run -p rb-core --bin rb scan ./demo-repo
 
 It prints the repository summary plus the checkup findings (severity, masked evidence, remediation advice).
 
+Ignore rules can also be **validated read-only** (same semantics as the GUI editor's dry run; nothing is written):
+
+```bash
+cargo run -p rb-core --bin rb ignore ./demo-repo
+```
+
+It prints how many user rules and built-in defaults apply, and lists rules that would silently do nothing (empty pattern / backslash / duplicate). Exit code 1 when any suspicious rule is found, so it fits CI or a pre-commit hook.
+
 ## Project Structure
 
 ```
@@ -213,7 +221,7 @@ repo-balance/
 │   └── rb-app/              # Tauri 2 desktop shell
 │       ├── src/
 │       │   ├── main.rs       # Tauri Builder entry
-│       │   ├── commands.rs   # IPC commands (scan / history / rules / export)
+│       │   ├── commands.rs   # IPC commands (scan / history / rules / ignore rules / export)
 │       │   ├── dto.rs        # camelCase DTO mirror layer
 │       │   ├── error.rs      # Error mapping
 │       │   └── state.rs      # Scan state management
@@ -227,15 +235,17 @@ repo-balance/
 │   │   ├── components/       # Shared components (TopBar / RadarChart / TrendChart)
 │   │   ├── stores/           # Pinia state stores
 │   │   ├── ipc/              # IPC wrapper (commands + events)
+│   │   ├── utils/            # Pure helpers (kept out of rendering so they are unit-testable)
 │   │   ├── styles/           # Theme styles (14 CSS variables)
 │   │   ├── test/             # Test environment (in-memory localStorage)
 │   │   └── types/            # TS type mirrors
 │   ├── package.json
 │   ├── vite.config.ts
-│   └── vitest.config.ts      # Vitest config (node env, store unit tests)
-├── docs/                     # Documentation (roadmap / custom rules / CI integration / demo GIFs)
+│   └── vitest.config.ts      # Vitest config (node env, store + pure helper unit tests)
+├── docs/                     # Documentation (roadmap / custom rules / ignore rules / CI integration / demo GIFs)
 │   ├── roadmap.md            # Authoritative roadmap (current state / goals / acceptance)
 │   ├── custom-rules.md       # Custom rule JSON format and behavior (Chinese)
+│   ├── ignore-rules.md       # Ignore-rule syntax, built-in defaults, editor & CLI semantics
 │   └── ci-integration.md     # CI integration guide
 ├── design/                   # Brand assets
 │   ├── icon.svg              # App icon source
@@ -250,7 +260,7 @@ repo-balance/
 - **CSP**: `default-src 'self'` (no external resource loading)
 - **Minimal permissions**: `core:default` + `dialog:allow-open` + `core:event:default` (no fs/shell)
 - **Path sources**: system directory picker only — no free-text path input
-- **Local writes**: the repository itself is always read-only; besides reports the user exports explicitly, the only file written is `scan-history.json` in the app data directory
+- **Local writes**: besides reports the user exports explicitly, the only files written are `scan-history.json` in the app data directory and — the one write into the repository being checked — `.repobalance-ignore` when the user saves ignore rules (they must travel with the repository); the git object database and commit history are never touched
 - **Fully local, zero network**: nothing is ever sent to a remote server
 - **Masked evidence**: evidence is masked when constructed in `rb-core`; export/IPC never restores it
 - **Zero Tauri dependency in `rb-core`**: the core compiles as a standalone CLI, decoupled from any UI framework
@@ -286,6 +296,7 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 - [x] **Report export** — JSON / Markdown / HTML (self-contained, inline SVG radar chart)
 - [x] **Scan history** — persisted in `scan-history.json` under the app data directory (legacy localStorage data is migrated automatically); compare two scans (new / resolved findings); import / export as a JSON backup
 - [x] **Ignore rules** — `.repobalance-ignore` with negated rules (`!pattern`); built-in defaults for build output (`target/`, `node_modules/`, …) that can be negated
+- [x] **Ignore rules editor (settings page)** — pick a repository and read / edit its root `.repobalance-ignore` in place; "Dry run" evaluates the unsaved text in memory (built-in defaults + your rules, exactly as the scan does) and reports how many files would be ignored, their share, total size and path samples, while flagging rules that would silently do nothing (empty pattern / backslash / duplicate); saving is atomic, and `rb ignore <path>` validates read-only with the same semantics (syntax and semantics: `docs/ignore-rules.md`, Chinese)
 - [x] **CI integration** — GitHub Actions pipeline running the checkup in CLI mode and uploading the report
 - [x] **i18n** — Chinese / English UI toggle
 - [x] **Large-repo throttle** — limit history traversal to the newest N commits / last N days (CLI `--max-commits` / `--since-days`, GUI "History Scope"); limited scans are labelled in the CLI, report page and exports
@@ -294,8 +305,8 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 - [x] **Remote repository checkup** — shallow-clone a URL into a temp directory (`TempDir` RAII cleans up automatically) and reuse the local pipeline; the report path is the URL. CLI `rb scan-url <url> [--depth N]`, plus a remote-URL entry on the connect view
 - [x] **Health trend analysis** — the history view charts "total + five dimensions" over time per repository (inline SVG, no chart dependency); N/A dimensions break the line instead of being interpolated, legend chips toggle curves, and per-point tooltips show time and value
 - [x] **Bulk multi-repository checkup** — select several folders at once to build a sequential queue where one failing repository never aborts the batch; the dashboard shows batch progress plus per-repo score / findings / criticals / duration ranked by score, averages count finished repositories only, and finished runs are written to history and can jump straight back into their report
-- [x] **Frontend unit tests** — Vitest covers the store's config persistence / history merge and migration / score semantics / trend aggregation / batch scheduling state machine (20 cases), and runs as part of the CI quality gate
-- [x] **Dedicated settings page** — checker toggles / thresholds / history scope / custom rules / ignore-rule notes moved out of the connect view into a settings page (top-bar "Settings"), leaving connect with "pick repo → scale estimate → start scan"; settings are global and stored locally
+- [x] **Frontend unit tests** — Vitest covers the store's config persistence / history merge and migration / score semantics / trend aggregation / batch scheduling state machine plus the ignore-rules editor's pure helpers (27 cases), and runs as part of the CI quality gate
+- [x] **Dedicated settings page** — checker toggles / thresholds / history scope / custom rules / the ignore-rules editor moved out of the connect view into a settings page (top-bar "Settings"), leaving connect with "pick repo → scale estimate → start scan"; settings are global and stored locally
 - [x] **Offline advisory DB management** — import a JSONL index from the settings page and see its status (entries / updated / size); validation runs before writing, so a corrupt or empty index never overwrites a working one; purely local, no network access
 
 ### Next (v0.2 ~ v0.3)
