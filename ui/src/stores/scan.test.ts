@@ -511,3 +511,45 @@ describe('批量体检', () => {
     expect(store.batchSummary.avgScore).toBeNull()
   })
 })
+
+// 远程体检：URL 来源没有本地路径，接入页/进度页/失败路径都要按 URL 走，
+// 且失败时错误必须可见（早年错误卡片只在 selectedPath 非空时渲染，
+// 远程失败会被静默吞掉——用户只看到「回到接入页」）。
+describe('远程体检', () => {
+  it('startRemoteScan_记住URL并清掉本地仓库目标', async () => {
+    const store = await freshStore()
+    store.selectedPath = '/tmp/local-repo'
+
+    await store.startRemoteScan('https://example.com/u/r.git')
+
+    expect(store.remoteUrl).toBe('https://example.com/u/r.git')
+    expect(store.selectedPath).toBeNull()
+    // 远程体检同样进入扫描页（不能因为没有本地路径就停在接入页）
+    expect(store.currentView).toBe(2)
+  })
+
+  it('远程体检_完成后进入报告页且报告路径为URL', async () => {
+    const store = await freshStore()
+    await store.startRemoteScan('https://example.com/u/r.git')
+
+    scanHandlers.done?.(makeReport('https://example.com/u/r.git'))
+
+    expect(store.currentView).toBe(3)
+    expect(store.isScanning).toBe(false)
+    expect(store.report?.repoPath).toBe('https://example.com/u/r.git')
+  })
+
+  it('远程体检_失败时停在接入页并保留可见错误', async () => {
+    const store = await freshStore()
+    ;(ipc.startRemoteScan as Mock).mockRejectedValueOnce(new Error('克隆失败'))
+
+    await store.startRemoteScan('https://example.com/u/r.git')
+
+    // 失败应停在接入页并展示错误，而不是留在扫描页空转
+    expect(store.currentView).toBe(1)
+    expect(store.repoError).toContain('克隆失败')
+    expect(store.isScanning).toBe(false)
+    // 关键回归：远程来源没有 selectedPath，接入页不能再以它为条件隐藏错误卡片。
+    expect(store.selectedPath).toBeNull()
+  })
+})

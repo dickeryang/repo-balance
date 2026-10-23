@@ -17,6 +17,12 @@ pub const DEFAULT_CLONE_DEPTH: i32 = 1;
 ///
 /// 注意：libgit2 的本地文件传输不支持浅抓取（shallow fetch），因此
 /// 本地路径源回退为全量克隆——浅克隆语义只对网络 URL 生效。
+///
+/// 传输支持取决于编译期 feature：本 crate 开启 git2 的 `https`
+/// （macOS = SecureTransport / Windows = WinHTTP / Linux = 系统 OpenSSL），
+/// 未开启 `ssh`，故 `ssh://` 与未配置 `insteadOf` 的 `git@host:` 地址会失败；
+/// 这类失败会给出「改用 HTTPS」的可执行提示，而不是原样抛出 libgit2 的
+/// `unsupported URL protocol`。
 pub fn clone_shallow(url: &str, dest: &Path, depth: i32) -> Result<()> {
     let depth = if depth <= 0 {
         DEFAULT_CLONE_DEPTH
@@ -36,13 +42,56 @@ pub fn clone_shallow(url: &str, dest: &Path, depth: i32) -> Result<()> {
     }
     let mut builder = git2::build::RepoBuilder::new();
     builder.fetch_options(fetch);
-    builder
-        .clone(url, dest)
-        .map_err(|e| RbError::Git(format!("克隆 {url} 失败: {e}")))?;
+    if let Err(e) = builder.clone(url, dest) {
+        // SSH 传输未编译进来：libgit2 只给一句 `unsupported URL protocol`，
+        // 用户据此无从下手，这里替换成「该怎么做」的提示。
+        if is_ssh_url(url) {
+            return Err(RbError::Git(format!(
+                "克隆 {url} 失败: 当前构建不支持 SSH 传输，请改用 HTTPS 地址；\
+                 或在 git 配置里用 url.<HTTPS 前缀>.insteadOf 把 SSH 地址改写成 HTTPS"
+            )));
+        }
+        return Err(RbError::Git(format!("克隆 {url} 失败: {e}")));
+    }
     Ok(())
 }
 
 /// 是否为本地文件系统路径（非网络协议 URL）。
 fn is_local_path(url: &str) -> bool {
     !url.contains("://") && !url.starts_with("git@")
+}
+
+/// 是否为 SSH 地址（`ssh://` / `git+ssh://`，或 `git@host:path` 这种 scp 写法）。
+///
+/// 注：`git@host:` 若被 git 配置的 `url.*.insteadOf` 改写成 HTTPS 会正常克隆，
+/// 此时不会走到这里的失败分支。
+fn is_ssh_url(url: &str) -> bool {
+    url.starts_with("ssh://")
+        || url.starts_with("git+ssh://")
+        || (!url.contains("://") && url.contains('@'))
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+mod tests {
+    use super::{is_local_path, is_ssh_url};
+
+    /// URL 形态判定：决定浅抓取是否生效，以及失败时给哪一类提示。
+    #[test]
+    fn url_形态判定_区分本地路径与网络地址() {
+        assert!(is_local_path("/tmp/repo"));
+        assert!(is_local_path("./repo"));
+        assert!(!is_local_path("https://example.com/a.git"));
+        assert!(!is_local_path("git@github.com:u/r.git"));
+    }
+
+    /// SSH 判定覆盖两种写法；HTTPS 与本地路径不能被误判为 SSH。
+    #[test]
+    fn url_形态判定_识别SSH地址() {
+        assert!(is_ssh_url("ssh://git@github.com/u/r.git"));
+        assert!(is_ssh_url("git+ssh://git@github.com/u/r.git"));
+        assert!(is_ssh_url("git@github.com:u/r.git"));
+        assert!(!is_ssh_url("https://github.com/u/r.git"));
+        assert!(!is_ssh_url("/tmp/repo"));
+    }
 }

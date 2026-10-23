@@ -96,6 +96,8 @@ export const useScanStore = defineStore('scan', () => {
   /** 视图：1 接入 / 2 扫描 / 3 报告 / 4 历史 / 5 批量看板 / 6 设置。 */
   const currentView = ref<1 | 2 | 3 | 4 | 5 | 6>(1)
   const selectedPath = ref<string | null>(null)
+  /** 远程体检的目标 URL（本地扫描为 null）：进度页用它显示「正在扫哪个仓库」。 */
+  const remoteUrl = ref<string | null>(null)
   const repoInfo = ref<RepoSnapshot | null>(null)
   const repoError = ref<string | null>(null)
   const isScanning = ref(false)
@@ -395,6 +397,7 @@ export const useScanStore = defineStore('scan', () => {
   async function startScan(path: string) {
     isScanning.value = true
     isCancelled.value = false
+    remoteUrl.value = null
     report.value = null
     progress.value = null
     // 初始化检查器 feed：按启用列表（空 = 全部）预置待运行行，
@@ -417,6 +420,11 @@ export const useScanStore = defineStore('scan', () => {
   async function startRemoteScan(url: string) {
     isScanning.value = true
     isCancelled.value = false
+    // 远程来源没有本地路径：清空本地仓库状态，避免进度页 / 接入页混用两套目标。
+    selectedPath.value = null
+    repoInfo.value = null
+    scaleEstimate.value = null
+    remoteUrl.value = url
     report.value = null
     progress.value = null
     checkerFeed.value = freshCheckerFeed()
@@ -631,6 +639,7 @@ export const useScanStore = defineStore('scan', () => {
     unlistenScanEvents()
     currentView.value = 1
     selectedPath.value = null
+    remoteUrl.value = null
     repoInfo.value = null
     repoError.value = null
     isScanning.value = false
@@ -731,6 +740,7 @@ export const useScanStore = defineStore('scan', () => {
   return {
     currentView,
     selectedPath,
+    remoteUrl,
     repoInfo,
     repoError,
     isScanning,

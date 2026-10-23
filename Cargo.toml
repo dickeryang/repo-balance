@@ -14,7 +14,11 @@ license = "Apache-2.0"
 authors = ["repo-balance contributors"]
 
 [workspace.dependencies]
-git2 = { version = "0.21", default-features = false }
+# `https` 必须显式开启：git2 0.21 的 default 为空，缺省编译出的 libgit2 不带
+# 任何 TLS 后端，HTTPS 克隆会报 "there is no TLS stream available"（远程仓库
+# 体检直接失败）。各平台后端：macOS = SecureTransport、Windows = WinHTTP、
+# Linux = 系统 OpenSSL（CI 已装 libssl-dev）。
+git2 = { version = "0.21", default-features = false, features = ["https"] }
 rayon = "1.10"
 regex = "1"
 serde = { version = "1.0", features = ["derive"] }

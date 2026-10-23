@@ -93,6 +93,12 @@
 - **自定义规则：海量命中不再无限占用内存**：`find_offsets` 改为返回「偏移量（最多 4096）+ 真实命中总数」——`x*` 这类几乎逐字节命中的正则会让偏移数组随文件体积线性膨胀（1 MiB 文件可达百万级 `usize`）；结论里的「命中 N 处」仍是真实总数，不受行号截断影响（实测 37k 命中的结论正常产出，内存有界）
 - **自定义规则：同一行多处命中只列一次行号**（原先会出现「行 1, 1, 1」这类噪音）
 - **批量体检：历史写盘改为串行 await**：整批会连续写入多次扫描历史，原先多个 `saveScanHistory` 可能并发落盘并乱序完成，历史文件会留下旧快照（历史回退）；现每轮 `await` 后再扫下一个仓库
+- **远程仓库体检：HTTPS 克隆一律失败（`there is no TLS stream available`）**：`git2` 声明为 `default-features = false`，而 git2 0.21 的 `default` 本身为空，编译出的 libgit2 **不带任何 TLS 后端**——所有 HTTPS 远程 URL 都在克隆阶段失败，扫描中止后回到接入页（表现即「远程体检不生效、进不到报告页」）
+  - 根因修复：显式开启 `https` feature。各平台后端 macOS = SecureTransport、Windows = WinHTTP、Linux = 系统 OpenSSL（CI 已装 `libssl-dev`），不引入 vendored OpenSSL
+  - **远程体检失败时错误不可见**：接入页错误卡片原先只在「已选仓库」时渲染，而远程来源没有本地路径（`selectedPath` 为空），用户只看到「回到接入页」却不知道原因；现错误卡片独立于 `selectedPath` 渲染，并给出「返回接入页」出口
+  - `ssh://`（以及未配置 `insteadOf` 的 `git@host:`）仍不支持——未启用 git2 的 `ssh` feature；但不再抛出无信息量的 `unsupported URL protocol`，改为「改用 HTTPS 地址 / 用 `url.<HTTPS 前缀>.insteadOf` 改写」的可执行提示
+  - 进度页标题在远程体检时显示目标 URL（原先因 `selectedPath` 为空而空白）
+  - 新增 store 回归用例：远程体检「记住 URL + 清空本地目标 / 完成后进报告页 / 失败留在接入页且错误可见」
 
 ### 变更
 

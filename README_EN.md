@@ -196,6 +196,12 @@ cargo run -p rb-core --bin rb scan ./demo-repo
 
 It prints the repository summary plus the checkup findings (severity, masked evidence, remediation advice).
 
+Remote repositories go through the same pipeline (shallow-cloned into a temp directory, cleaned up on exit, nothing persisted locally):
+
+```bash
+cargo run -p rb-core --bin rb scan-url https://host/repo.git
+```
+
 Ignore rules can also be **validated read-only** (same semantics as the GUI editor's dry run; nothing is written):
 
 ```bash
@@ -302,7 +308,7 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 - [x] **Large-repo throttle** — limit history traversal to the newest N commits / last N days (CLI `--max-commits` / `--since-days`, GUI "History Scope"); limited scans are labelled in the CLI, report page and exports
 - [x] **Scan scale estimate** — the connect view shows commits / files / size and an estimated duration (object count and duration are extrapolated from a sample); large repos get a suggested limit that can be applied in one click
 - [x] **Custom rules** — define team-specific checks in JSON (regex + path glob + severity + category + advice) and turn your own conventions into reproducible findings; managed via GUI forms with JSON import / export, and `--rules FILE` on the CLI; regex matching is linear-time, matched samples are masked, and each rule is capped at 50 file findings with an honest truncation notice (format: [`docs/custom-rules.md`](docs/custom-rules.md), Chinese)
-- [x] **Remote repository checkup** — shallow-clone a URL into a temp directory (`TempDir` RAII cleans up automatically) and reuse the local pipeline; the report path is the URL. CLI `rb scan-url <url> [--depth N]`, plus a remote-URL entry on the connect view
+- [x] **Remote repository checkup** — shallow-clone a URL into a temp directory (`TempDir` RAII cleans up automatically) and reuse the local pipeline; the report path is the URL. CLI `rb scan-url <url> [--depth N]`, plus a remote-URL entry on the connect view. HTTPS URLs work out of the box; `git@host:` relies on the `insteadOf` rewrite in your git config, and `ssh://` is not enabled (it reports back with a "use HTTPS instead" hint)
 - [x] **Health trend analysis** — the history view charts "total + five dimensions" over time per repository (inline SVG, no chart dependency); N/A dimensions break the line instead of being interpolated, legend chips toggle curves, and per-point tooltips show time and value
 - [x] **Bulk multi-repository checkup** — select several folders at once to build a sequential queue where one failing repository never aborts the batch; the dashboard shows batch progress plus per-repo score / findings / criticals / duration ranked by score, averages count finished repositories only, and finished runs are written to history and can jump straight back into their report
 - [x] **Frontend unit tests** — Vitest covers the store's config persistence / history merge and migration / score semantics / trend aggregation / batch scheduling state machine plus the ignore-rules editor's pure helpers (27 cases), and runs as part of the CI quality gate
