@@ -1,6 +1,6 @@
 # 依赖治理门禁（cargo-deny）
 #
-# 本项目自身以 Apache-2.0 发布，且对外承诺「纯本地零网络、零数据外发」，
+# 本项目自身以 Apache-2.0 发布，且对外承诺「体检链路零网络、零数据外发」，
 # 因此供应链需要可审计：许可证白名单 + 已知漏洞 + 依赖来源三线把关。
 #
 # 白名单由依赖树实际许可证分布归纳（cargo metadata 统计），
@@ -51,6 +51,10 @@ allow = [
     # MPL-2.0 为文件级弱著佐权，与 Apache-2.0 兼容；
     # 依赖树中来自 CSS 解析链（cssparser / selectors / dtoa-short / option-ext）
     "MPL-2.0",
+    # CDLA-Permissive-2.0 是数据许可（非代码著佐权），内容为 Mozilla 的 CA 根证书
+    # 清单：webpki-root-certs ← rustls-platform-verifier ← reqwest ← 更新插件。
+    # 放行它不会给本项目代码带来任何传染性义务。
+    "CDLA-Permissive-2.0",
 ]
 # 白名单里目前用不到的条目给出提示，便于及时收敛
 unused-allowed-license = "warn"

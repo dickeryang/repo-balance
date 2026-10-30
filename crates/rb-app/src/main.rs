@@ -15,6 +15,10 @@ use state::ScanState;
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // 更新检查是唯一的出站网络通道，且只在用户点击「检查更新」时触发；
+        // process 仅提供安装完成后的自身重启。
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(ScanState::new())
         .invoke_handler(tauri::generate_handler![
             select_directory,

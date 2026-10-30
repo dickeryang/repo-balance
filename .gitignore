@@ -40,3 +40,6 @@ Thumbs.db
 
 # Test / coverage
 coverage/
+
+# 本地审计与演练产物（不入库）
+/reports/

@@ -40,5 +40,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/dickeryang/repo-balance/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgzQjg5NkJBNThCODA5RkIKUldUN0NiaFl1cGE0ZzFFdmllR3l0RlZPL2EvM2k2WlVLZ3RsRDBnOWRCWTdRNTdaWm1vVFRObFgK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

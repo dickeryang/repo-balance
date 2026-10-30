@@ -233,7 +233,8 @@ repo-balance/
 │       │   └── state.rs      # 扫描状态管理
 │       ├── capabilities/     # 权限最小集
 │       ├── icons/            # 应用图标
-│       ├── tauri.conf.json   # Tauri 配置（CSP/窗口/打包）
+│       ├── tauri.conf.json   # Tauri 配置（CSP/窗口/打包/更新端点与公钥）
+│       ├── tauri.updater.conf.json # 发布专用覆盖（createUpdaterArtifacts，仅 CI 合并）
 │       └── build.rs          # tauri-build
 ├── ui/                       # Vue 3 前端工程
 │   ├── src/
@@ -252,12 +253,13 @@ repo-balance/
 │   ├── roadmap.md            # 权威路线图（现状盘点 / 阶段目标 / 验收标准）
 │   ├── custom-rules.md       # 自定义规则 JSON 格式与行为口径
 │   ├── ignore-rules.md       # 忽略规则语法、内置默认项与编辑器 / CLI 口径
+│   ├── distribution.md       # 发布与分发手册（更新签名 / 包管理器清单 / Release notes）
 │   └── ci-integration.md     # CI 接入指南
 ├── design/                   # 品牌资产
 │   ├── icon.svg              # 应用图标源文件
 │   ├── preview.png           # 1024×1024 图标预览（可直接用作代码平台项目头像）
 │   └── preview-64.png        # 64×64 图标
-├── scripts/                  # 夹具脚本（build-demo-fixture.sh）
+├── scripts/                  # 演示夹具 / 漏洞库索引 / 发布说明 / 包管理器清单生成
 └── Cargo.toml                # workspace 根
 ```
 
@@ -267,7 +269,8 @@ repo-balance/
 - **权限最小集**: `core:default` + `dialog:allow-open` + `core:event:default`（无 fs/shell）
 - **路径来源**: 仅系统目录选择对话框，无自由文本输入
 - **本地落盘范围**: 除用户主动导出的报告、应用数据目录的 `scan-history.json`（扫描历史）外，仅有一处写入被检查仓库——用户在设置页保存的 `.repobalance-ignore`（忽略规则必须随仓库走，与 `.gitignore` 同理）；不触碰 git 对象库与提交历史
-- **纯本地零网络**: 不发送任何数据到远程服务器
+- **默认不联网**: 体检、评分、历史、导出与漏洞库导入全程不发起网络请求；唯一的出站行为是设置页手动的「检查更新」（默认关闭，可开启启动时自动检查），不携带任何仓库内容或设备标识
+- **更新验签**: 更新包由发布流水线的 minisign 私钥签名、公钥内置，签名缺失或不匹配一律拒绝安装
 - **evidence 掩码**: 证据在 rb-core 构造时掩码，导出/IPC 不复原
 - **rb-core 零 tauri 依赖**: 内核可独立编译为 CLI，不耦合 UI 框架
 
@@ -297,9 +300,11 @@ repo-balance/
 - [x] **远程仓库体检**：输入 URL 浅克隆到临时目录（`TempDir` RAII 自动清理）后复用本地扫描管线，报告路径以 URL 为准；CLI `rb scan-url <url> [--depth N]`，GUI 连接页支持远程 URL 直扫。HTTPS 地址开箱可用；`git@host:` 依赖 git 配置的 `insteadOf` 改写，`ssh://` 未启用（会给出改用 HTTPS 的提示）
 - [x] **健康度趋势分析**：历史页按仓库绘制「总分 + 五维」折线（内联 SVG，无图表依赖）；N/A 维度断线不插值、图例可隐藏曲线、单点 tooltip 标注时间与取值
 - [x] **多仓库批量体检**：一次多选目录形成串行队列，单仓失败不中断整批；汇总对比看板展示整批进度、每仓总分 / 问题数 / 严重数 / 用时并按总分排序，平均分只统计已完成仓库；完成仓库写入历史，可跳回报告页
-- [x] **前端单元测试**：Vitest 覆盖 store 的配置持久化 / 历史合并与迁移 / 评分口径 / 趋势聚合 / 批量调度状态机，以及忽略规则编辑器的纯函数（27 用例），并接入 CI 质量门禁
+- [x] **前端单元测试**：Vitest 覆盖 store 的配置持久化 / 历史合并与迁移 / 评分口径 / 趋势聚合 / 批量调度状态机，以及忽略规则编辑器纯函数与更新流程状态机（44 用例），并接入 CI 质量门禁
 - [x] **独立设置页**：检查器开关 / 阈值 / 历史范围 / 自定义规则 / 忽略规则编辑器从连接页拆出（顶栏「设置」），连接页只保留「选仓库 → 规模预估 → 开始体检」；配置全局生效、存本机
 - [x] **离线漏洞库管理**：设置页可导入 JSONL 索引并查看状态（条目数 / 更新时间 / 体积）；先验后写，损坏或空索引不会覆盖既有可用库；纯本地操作，不做网络请求
+- [x] **应用内更新**：设置页「软件更新」手动检查 GitHub Releases 新版本，展示版本说明与下载进度，安装后一键重启；更新包走 minisign 验签。**不做后台轮询**——默认不联网，只有用户点击或显式开启「启动时自动检查」才发起请求（口径见 [`docs/distribution.md`](docs/distribution.md)）
+- [x] **分发清单与发布说明**：`scripts/gen-packaging-manifests.sh` 按真实发布资产的 SHA-256 生成 Homebrew Cask / Scoop / WinGet 清单，发布流水线自动附加到 Release；Release 正文由 `scripts/release-notes.sh` 从 CHANGELOG 提取，杜绝「Release 与 CHANGELOG 两套说法」
 
 ### 近期（v0.2 ~ v0.3）
 
@@ -307,8 +312,8 @@ repo-balance/
 
 ### 中长期（v0.5 → v1.0）
 
-- [ ] **漏洞库随包分发 / 自动更新**：设置页已支持导入 JSONL 索引并查看状态，但索引未随安装包分发，也不做联网自动更新（受「纯本地零网络」定位限制）
-- [ ] **官方 GitHub Action**、自动更新、Homebrew / Scoop / Winget 分发
+- [ ] **漏洞库随包分发**：设置页已支持导入 JSONL 索引并查看状态，但索引未随安装包分发，也不做联网自动更新（索引仍由 `scripts/build-vuln-index.sh` 手工生成，避免把体检变成联网查询）
+- [ ] **官方 GitHub Action**：把 CLI 封装为 CI 动作，PR 中自动跑体检并评论结论
 - [ ] **团队报告协作**：Report as Code，整改项 PR 评审闭环
 
 ## 参与贡献

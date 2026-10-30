@@ -2,7 +2,7 @@
 
 [English](CONTRIBUTING_EN.md) | 简体中文
 
-感谢你关注「仓衡 RepoBalance」。本项目为纯本地的 Git 仓库健康度体检工具，**零网络请求、不采集任何数据**，任何改动都需守住这条底线。
+感谢你关注「仓衡 RepoBalance」。本项目为纯本地的 Git 仓库健康度体检工具，**体检链路零网络请求、不采集任何数据**——任何改动都需守住这条底线。全应用唯一的联网通道是用户显式触发的更新检查（默认关闭，口径见 [`SECURITY.md`](SECURITY.md#网络行为)）；新增任何联网行为都需先修改 [`GOVERNANCE.md`](GOVERNANCE.md) 并公开讨论。
 
 ## 一、先决条件
 
@@ -38,6 +38,7 @@ cd ui && npm run lint && npm run test && npm run build   # 前端 ESLint + 单�
 3. **公开类型必须有完整的 `///` 文档**：说明「是什么 / 为什么 / 边界与错误」，含 `# Errors` / `# Examples` 段落。
 4. **提交信息用约定式提交**：`feat:` / `fix:` / `docs:` / `refactor:` / `test:` / `chore:`，正文用中文说明动机。
 5. **前端样式与文案**：样式走 CSS 变量（`--bg-card` / `--accent` / `--text-dim` 等），文案一律进 `ui/src/i18n/index.ts`，**zh/en 两个字典必须同步加键**。
+6. **发布物料不入库**：更新签名私钥与各类凭证只放 CI secrets；包管理器清单的校验和必须来自真实发布产物（生成器会校验格式与存在性）。
 
 ## 四、新增检查器
 

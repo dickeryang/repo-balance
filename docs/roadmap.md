@@ -2,11 +2,11 @@
 
 > 本文档是仓衡的权威规划文档，与 README「规划」章节保持一致。
 > 规则：每个版本发布时同步更新勾选状态；**未完成的功能不得在 README 中标记为已完成**。
-> 最近更新：2026-10-23
+> 最近更新：2026-10-30
 
 ---
 
-## 〇、现状盘点（2026-10-23）
+## 〇、现状盘点（2026-10-30）
 
 ### 已落地
 
@@ -38,7 +38,7 @@
 | 供应链治理 | ✅ | `deny.toml`（许可证白名单 / 漏洞 / 来源，cargo-deny）、Dependabot 周更、`.github/CODEOWNERS` |
 | 覆盖率 | ✅ | rb-core 覆盖率摘要纳入 CI（cargo-llvm-cov） |
 | MSRV | ✅ | 声明 `rust-version = 1.88`（依赖树实测下界），CI 与实际一致 |
-| 安全设计 | ✅ | CSP 最小集、权限最小集、纯本地零网络、evidence 掩码 |
+| 安全设计 | ✅ | CSP 最小集、权限最小集、默认零网络（唯一出站为手动的更新检查）、更新包 minisign 验签、evidence 掩码 |
 | 贡献者基础设施 | ✅ | CONTRIBUTING / CODE_OF_CONDUCT / SECURITY / CHANGELOG / SUPPORT / GOVERNANCE / AUTHORS / CITATION.cff / issue 模板（bug+feature）/ PR 模板 / .editorconfig / .gitattributes |
 | 双语文档 | ✅ | README / CONTRIBUTING / SECURITY / CODE_OF_CONDUCT 四份文档中英互链（CHANGELOG 保持单语，避免双份同步负担） |
 | 安装体验说明 | ✅ | README 载明发布包未签名及 macOS/Windows 放行方式（含命令），并指向源码自构建 |
@@ -46,13 +46,16 @@
 | AtomGit 露出 | ✅ | README 顶部 G-Star+Star+Fork+Download 徽章、托管与同步章节、AtomGit logo |
 | 离线漏洞库管理 | ✅ | 设置页可导入 JSONL 索引并查看状态（条目数 / 更新时间 / 体积）；先验后写（解析失败或空库拒绝落盘），保持纯离线不做联网更新 |
 | 设置页独立化 | ✅ | 检查器开关 / 阈值 / 历史范围 / 自定义规则 / 忽略规则编辑器拆出为独立设置页（视图 6，顶栏「设置」），连接页只留选仓库与规模预估；配置全局生效、存本机（唯一写入被检查仓库的是用户保存的 `.repobalance-ignore`） |
-| 前端单元测试 | ✅ | Vitest（node 环境 + 内存 `localStorage`，零 DOM 依赖）：覆盖配置持久化 / 历史合并与迁移 / 评分口径 / 趋势聚合 / 批量调度状态机与忽略规则编辑器纯函数（27 用例），已接入 CI 质量门禁 |
+| 前端单元测试 | ✅ | Vitest（node 环境 + 内存 `localStorage`，零 DOM 依赖）：覆盖配置持久化 / 历史合并与迁移 / 评分口径 / 趋势聚合 / 批量调度状态机 / 忽略规则编辑器纯函数 / 更新流程状态机（44 用例），已接入 CI 质量门禁 |
+| 应用内更新 | ✅ | `tauri-plugin-updater` + minisign 验签：设置页手动检查、展示说明与下载进度、安装后重启；**默认不联网**（无后台轮询），可选「启动时自动检查」；发布流水线按签名私钥产出 `.sig` 与 `latest.json`，密钥缺失时降级为「仅手动下载」并给出 warning |
+| 分发清单与发布说明 | ✅ | `scripts/gen-packaging-manifests.sh` 按真实资产 SHA-256 生成 Homebrew Cask / Scoop / WinGet 清单并附到 Release（推送 tap / bucket / winget-pkgs 仍由维护者提 PR，见 [`distribution.md`](distribution.md)）；`scripts/release-notes.sh` 从 CHANGELOG 提取 Release 正文，缺小节时回退通用文案；Windows 额外产出便携 zip 供 Scoop 使用 |
 | 双端同步 | ✅ | 同一提交推送 AtomGit + GitHub（G-Star 要求同步不超过 1 个月） |
 
 ### 关键缺口
 
 1. PDF 导出未实现（报告内容含中文，需解决 CJK 字体嵌入，成本高于 JSON / Markdown / HTML）。
-2. 漏洞库索引仍需手工生成：脚本已备且设置页已有 **GUI 导入入口**，但未随安装包分发，也不做联网自动更新（受「纯本地零网络」定位限制）。
+2. 漏洞库索引仍需手工生成：脚本已备且设置页已有 **GUI 导入入口**，但未随安装包分发，也不做联网自动更新（体检链路保持零网络）。
+3. 包管理器清单只到「生成 + 附到 Release」：推送到 brew tap / Scoop bucket / winget-pkgs 需要各自仓库与凭证，由维护者按 [`distribution.md`](distribution.md) 提 PR；未做 macOS 公证与 Windows 代码签名。
 
 ---
 
@@ -157,10 +160,18 @@
   - 静态检查「写了却不会生效」的三类规则：空模式（`/`、`!`）、反斜杠分隔、规则重复；**只提示不阻止保存**（注释与中间态是用户的自由）；
   - CLI `rb ignore <path>` 同口径只读校验，存在可疑规则时退出码 1，可放进 CI / pre-commit；
   - 语法与口径见 [`ignore-rules.md`](ignore-rules.md)；这是本应用唯一写入被检查仓库的操作，README 安全章节已如实标注。
-- [ ] **分发渠道扩展**
-  - `tauri-plugin-updater` 自动更新；
-  - Release notes 规范化；
-  - Homebrew / Scoop / Winget 打包脚本。
+- [x] **分发渠道扩展** ✅ 已于 2026-10-30 落地
+  - 应用内更新（`tauri-plugin-updater`）：设置页手动检查 → 展示版本说明与下载进度 → 安装后重启；
+    minisign 验签（公钥内置），发布流水线按私钥产出 `.sig` 与 `latest.json`；
+  - **刻意不做后台静默轮询**：默认不联网是核心承诺，联网只在用户点击或显式开启
+    「启动时自动检查」时发生；未配置签名私钥时流水线不失败，降级为「仅手动下载」；
+  - Release notes 规范化：`scripts/release-notes.sh` 从 CHANGELOG 提取正文，
+    缺小节时回退通用文案；`.github/release.yml` 作为按标签分类的兜底；
+  - 分发清单：`scripts/gen-packaging-manifests.sh` 由真实资产 SHA-256 生成
+    Homebrew Cask / Scoop / WinGet 清单，发布 job 自动附到 Release；Windows 额外
+    产出便携 zip（Scoop 的 `bin` 直接指向 exe，不静默跑 NSIS）；
+  - 推送 tap / bucket / winget-pkgs 需各自仓库与凭证，保持人工 PR；
+    操作手册见 [`distribution.md`](distribution.md)。
 - [x] **前端测试** ✅ 已于 2026-10-20 落地
   - 引入 Vitest（`npm run test`，node 环境 + 最小 `localStorage` 实现，不引入 jsdom）；
   - 覆盖 store 的配置持久化 / 历史合并与迁移 / 评分口径 / 趋势聚合 / 批量调度状态机（22 个用例），
@@ -171,7 +182,7 @@
 
 ### 中期验收标准
 
-- v0.5.0 发布（批量体检、趋势图、远程体检、OSV 漏洞检测、前端单测与设置页独立化均已落地），剩余为分发项（自动更新 / Homebrew / Scoop / Winget）；
+- v0.5.0 发布（批量体检、趋势图、远程体检、OSV 漏洞检测、前端单测、设置页独立化、应用内更新与包管理器清单均已落地），中期事项全部完成；
 - AtomGit star 达到三位数（批量体检面向团队场景，易形成传播）。
 
 ---

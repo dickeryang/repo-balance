@@ -2,7 +2,7 @@
 
 [简体中文](CONTRIBUTING.md) | English
 
-Thanks for your interest in RepoBalance. This project is a **fully local** Git repository health checker: **no network requests, no data collection whatsoever** — every change must respect that boundary.
+Thanks for your interest in RepoBalance. This project is a **fully local** Git repository health checker: **the checkup itself makes no network requests and collects no data whatsoever** — every change must respect that boundary. The app's single network path is the update check the user triggers explicitly (off by default; see [`SECURITY_EN.md`](SECURITY_EN.md#network-behaviour)); any new network behaviour requires amending [`GOVERNANCE.md`](GOVERNANCE.md) and an open discussion first.
 
 ## 1. Prerequisites
 
@@ -40,6 +40,7 @@ These are exactly the checks CI runs; a red check blocks the merge.
 3. **Every public type needs full `///` documentation**: what it is, why it exists, and its boundaries and errors, including `# Errors` / `# Examples` sections.
 4. **Conventional commits**: `feat:` / `fix:` / `docs:` / `refactor:` / `test:` / `chore:`. Commit bodies are written in Chinese (the maintainer's working language).
 5. **Frontend styles and copy**: styles use CSS variables (`--bg-card` / `--accent` / `--text-dim`), and all user-facing copy lives in `ui/src/i18n/index.ts` — **the zh and en dictionaries must be updated together**.
+6. **Release material never enters the repo**: update-signing private keys and credentials live only in CI secrets; package-manifest checksums must come from real release artifacts (the generator validates format and presence).
 
 ## 4. Adding a checker
 

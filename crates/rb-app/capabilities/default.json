@@ -1,11 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "最小能力集：窗口管理 + 目录对话框 + 事件机制",
+  "description": "最小能力集：窗口管理 + 目录对话框 + 事件机制 + 用户显式触发的更新检查与重启",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "dialog:allow-open",
-    "core:event:default"
+    "core:event:default",
+    "updater:default",
+    "process:default"
   ]
 }

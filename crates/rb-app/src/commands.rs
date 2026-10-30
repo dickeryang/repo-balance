@@ -353,7 +353,7 @@ fn validate_vuln_index(text: &str) -> std::result::Result<usize, String> {
 
 /// 导入离线漏洞库索引：文件对话框选 JSONL → 校验 → 写入应用数据目录。
 ///
-/// **纯离线**：不做任何网络请求（与「纯本地零网络」定位一致）；用户取消返回
+/// **纯离线**：不做任何网络请求（与「默认零网络」定位一致）；用户取消返回
 /// `Ok(None)`，导入成功返回公告条数。
 #[tauri::command]
 pub async fn import_vuln_index(app: tauri::AppHandle) -> Result<Option<usize>, String> {

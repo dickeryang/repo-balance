@@ -7,6 +7,7 @@ import * as ipc from '../ipc/commands'
 import type { VulnIndexInfo } from '../types/models'
 import ConfigPanel from './connect/ConfigPanel.vue'
 import IgnoreRulesEditor from './settings/IgnoreRulesEditor.vue'
+import UpdatePanel from '../components/UpdatePanel.vue'
 
 const store = useScanStore()
 const { t } = useI18n()
@@ -94,6 +95,9 @@ onMounted(refreshVulnInfo)
     </div>
     <p class="dim hint">{{ t('vuln.hint') }}</p>
   </div>
+
+  <!-- 唯一联网入口：默认不发起任何请求，仅在用户显式操作时联网 -->
+  <UpdatePanel />
 </template>
 
 <style scoped>

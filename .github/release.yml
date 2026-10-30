@@ -1,0 +1,33 @@
+# GitHub 自动生成 Release notes 的分类规则（仅在未显式提供正文时生效）。
+#
+# 仓衡的正式发布以 `scripts/release-notes.sh` 从 CHANGELOG.md 提取的正文为准；
+# 本文件是兜底：万一 tag 忘记补 CHANGELOG，GitHub 生成的说明也按标签分好类，
+# 而不是把所有提交堆成一段。
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+      - dependencies
+    authors:
+      - dependabot
+      - dependabot[bot]
+  categories:
+    - title: 新功能
+      labels:
+        - feature
+        - enhancement
+    - title: 缺陷修复
+      labels:
+        - bug
+        - fix
+    - title: 文档与治理
+      labels:
+        - documentation
+        - governance
+    - title: 构建与 CI
+      labels:
+        - ci
+        - build
+    - title: 其它变更
+      labels:
+        - "*"

@@ -1,9 +1,20 @@
 name: 打包桌面应用
 
+# 发布流程三段：
+#   1. build：三平台打包，产物上传 Release；配置了签名密钥时额外生成更新签名与
+#      latest.json（tauri-plugin-updater 的更新源），并把 Windows 便携版打成 zip；
+#   2. manifests：从 Release 资产计算 SHA-256，生成 Homebrew Cask / Scoop / WinGet
+#      清单并作为附件回传（推送 tap / bucket / winget-pkgs 需各自凭证，见
+#      docs/distribution.md，由维护者提 PR）；
+#   3. Release 正文由 scripts/release-notes.sh 从 CHANGELOG.md 提取，保证
+#      Release 与 CHANGELOG 是同一份事实。
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -56,18 +67,81 @@ jobs:
         run: npm install
         working-directory: ui
 
+      # Release 正文取自 CHANGELOG，缺小节时回退到通用文案（不让发布卡在文案上，
+      # 但也不发一份空的更新说明）。
+      - name: 读取发布说明
+        id: notes
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
+            echo "body=请在 Assets 中下载对应平台的安装包。" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if bash scripts/release-notes.sh "$GITHUB_REF_NAME" release-notes.md; then
+            {
+              echo "body<<__RB_NOTES__"
+              cat release-notes.md
+              echo "__RB_NOTES__"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "body=请在 Assets 中下载对应平台的安装包；版本说明见 CHANGELOG.md。" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 没有签名私钥时不做更新签名（也不生成 latest.json）：发布照常可用，只是
+      # 应用内「检查更新」会提示加载失败，用户仍可从 Release 页手动下载。
+      - name: 检测更新签名密钥
+        id: signing
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [[ -n "$KEY" ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "config=--config crates/rb-app/tauri.updater.conf.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "config=" >> "$GITHUB_OUTPUT"
+            echo "::warning::未配置 TAURI_SIGNING_PRIVATE_KEY，跳过更新签名与 latest.json"
+          fi
+
       - name: 打包 Tauri 应用
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: .
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseName: ${{ github.ref_type == 'tag' && '仓衡 v__VERSION__' || '' }}
-          releaseBody: '请在 Assets 中下载对应平台的安装包。'
+          releaseBody: ${{ steps.notes.outputs.body }}
+          includeUpdaterJson: ${{ steps.signing.outputs.ready }}
           releaseDraft: false
           prerelease: false
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ steps.signing.outputs.config }}
+
+      # Scoop 清单需要一个免安装包：把构建出的 exe（含 WebView2 依赖，Win10+ 自带）
+      # 打成 zip，Scoop 侧 bin 直接指向它，避免静默运行 NSIS 安装器。
+      - name: 打包 Windows 便携版
+        if: matrix.os == 'windows-latest' && github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          $bin = if (Test-Path "target/release/RepoBalance.exe") { "target/release/RepoBalance.exe" } else { "target/release/rb-app.exe" }
+          if (-not (Test-Path $bin)) { throw "未找到构建出的可执行文件：$bin" }
+          New-Item -ItemType Directory -Force -Path portable | Out-Null
+          Copy-Item $bin portable/RepoBalance.exe
+          Compress-Archive -Path portable/RepoBalance.exe -DestinationPath "RepoBalance_${ver}_windows-x64-portable.zip" -Force
+
+      - name: 上传便携版到 Release
+        if: matrix.os == 'windows-latest' && github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          $ver = $env:TAG.TrimStart('v')
+          gh release upload $env:TAG "RepoBalance_${ver}_windows-x64-portable.zip" --clobber
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
@@ -81,3 +155,38 @@ jobs:
             target/release/bundle/**/*.rpm
             target/universal-apple-darwin/release/bundle/**/*.dmg
             target/universal-apple-darwin/release/bundle/**/*.app
+            RepoBalance_*_windows-x64-portable.zip
+
+  # 清单只能由真实产物的校验和生成，因此必须等三个平台都传完资产再跑。
+  manifests:
+    name: 生成包管理器清单
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 下载发布产物
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist
+          gh release download "$GITHUB_REF_NAME" --dir dist --clobber
+
+      - name: 计算 SHA-256
+        run: |
+          cd dist
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: 生成 Homebrew / Scoop / WinGet 清单
+        run: bash scripts/gen-packaging-manifests.sh "$GITHUB_REF_NAME" dist/SHA256SUMS.txt dist/manifests
+
+      - name: 附加清单到 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" dist/SHA256SUMS.txt --clobber
+          find dist/manifests -type f -print0 | xargs -0 -n1 gh release upload "$GITHUB_REF_NAME" --clobber

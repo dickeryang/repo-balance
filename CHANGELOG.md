@@ -8,8 +8,25 @@
 
 对应仓库 `master` 分支。**版本号未定**：检查器体系与评分口径已落地，但 PDF 导出等仍待补齐，待功能完整后再定版打 tag（进度见 [`docs/roadmap.md`](docs/roadmap.md)）。
 
+### 安全
+
+- 依赖升级修复 `cargo deny` 新公告：`tokio` → 1.54.1（RUSTSEC-2026-0386，`AsyncFd` I/O 安全问题，经由更新插件引入的 reqwest 传递依赖）、`libz-sys` → 1.1.31（RUSTSEC-2026-0418，构建脚本向 build 目录泄漏环境变量）
+- `deny.toml` 许可证白名单新增 `CDLA-Permissive-2.0`（`webpki-root-certs` 的数据许可，内容为 Mozilla CA 根证书清单，非代码著佐权）
+
 ### 新增
 
+- **应用内更新（可选、手动触发）**：设置页新增「软件更新」卡片，检查 → 展示版本说明与下载进度 → 安装 → 一键重启
+  - `tauri-plugin-updater` + `@tauri-apps/plugin-updater` 负责检查、下载与安装，`tauri-plugin-process` 负责安装后重启；新增能力 `updater:default` / `process:default`
+  - **默认不联网**：没有后台轮询；只有用户点击「检查更新」或显式开启「启动时自动检查」（本机偏好，默认关闭）时才发起请求，且只取版本元数据与安装包，不携带仓库内容、路径、扫描结果或设备标识
+  - 安装包走 **minisign 验签**：公钥内置于 `tauri.conf.json`，签名缺失或不匹配一律拒绝安装
+  - 发布侧新增 `crates/rb-app/tauri.updater.conf.json`（`createUpdaterArtifacts`），仅在 CI 配置了 `TAURI_SIGNING_PRIVATE_KEY` 时合并；未配置私钥不会让发布失败，只告警并降级为「手动下载」
+  - 定位表述修正：README / SECURITY 的「纯本地零网络」改为「默认零网络 + 唯一的手动更新通道」，并新增「网络行为」章节（原文「不引入 HTTP 客户端」已不再成立，如实修正而非保留旧说法）
+- **分发清单与发布说明自动化**
+  - `scripts/gen-packaging-manifests.sh`：按真实发布资产的 SHA-256 生成 Homebrew Cask / Scoop / WinGet 三套清单；缺 dmg / setup.exe / 便携 zip 任一即失败，绝不生成指向不存在文件的清单
+  - 发布工作流新增 `manifests` job：下载 Release 资产 → 计算校验和 → 生成清单 → 作为附件回传；Windows 额外产出便携 zip，Scoop 的 `bin` 直接指向 exe，不静默运行 NSIS 安装器
+  - `scripts/release-notes.sh`：从 CHANGELOG 提取 Release 正文（容忍 `v` 前缀，缺小节时退出码 1）；`.github/release.yml` 作为按标签分类的兜底，Release 与 CHANGELOG 不再可能出现两套说法
+  - 推送 brew tap / Scoop bucket / winget-pkgs 需要各自仓库与凭证，保持人工 PR，操作手册见 `docs/distribution.md`
+- **更新流程单测**：14 个用例覆盖检查 / 发现新版本 / 重复检查释放旧句柄 / 下载进度（含无 Content-Length）/ 安装失败原地重试 / 连点去重 / 自动检查偏好持久化；连点去重用例发现并修复了「phase 在 await 之后才置位导致并发两次查询」的竞态
 - **离线漏洞库管理（设置页）**：漏洞库此前只能手工拷贝到应用数据目录，现可在设置页导入 JSONL 索引并查看状态（条目数 / 更新时间 / 体积）
   - 新增 `import_vuln_index` / `vuln_index_info` 命令；**先验后写**：解析失败或空索引一律拒绝落盘，不会用损坏 / 空库覆盖既有可用索引
   - 保持**纯离线**定位：导入不做任何网络请求（索引仍由 `scripts/build-vuln-index.sh` 生成）
@@ -110,7 +127,7 @@
 
 ### 工程与流程
 
-- **前端单元测试（Vitest）**：`npm run test` 覆盖 store 的配置持久化 / 历史合并与迁移 / 评分口径 / 趋势聚合 / 批量调度状态机，以及忽略规则编辑器的纯函数 `ui/src/utils/ignore.ts`（27 用例）
+- **前端单元测试（Vitest）**：`npm run test` 覆盖 store 的配置持久化 / 历史合并与迁移 / 评分口径 / 趋势聚合 / 批量调度状态机，以及忽略规则编辑器的纯函数 `ui/src/utils/ignore.ts`（30 用例）
   - node 环境 + `src/test/setup.ts` 提供的最小 `localStorage` 实现，不引入 jsdom，依赖与启动开销最小
   - 批量调度用「预置每轮结果 + 同步回推事件」的 IPC mock 在进程内跑完整批循环，覆盖失败不中断、取消后剩余跳过、`resetToConnect` 中止不留「进行中」三个关键回归
   - 为便于单测，`parseHistory` / `mergeHistory` / `loadConfig` / `totalScoreOf` / `totalOrNullOf` / `repoNameOf` 以具名导出暴露（应用代码仍只消费 store 实例）

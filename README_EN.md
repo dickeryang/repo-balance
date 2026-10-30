@@ -10,7 +10,7 @@
 
 RepoBalance ("仓衡", *cāng héng* — a granary scale) is a cross-platform desktop app that runs a structured health checkup on your local Git repositories: large files, zombie branches, commit habits, dependency health and leaked secrets, producing an exportable checkup report. It was built independently with the Huawei Cloud CodeArts coding agent.
 
-**Everything stays on your machine** — no network requests, no telemetry, and secret evidence is masked before it ever leaves the Rust core.
+**Everything stays on your machine** — scanning never touches the network, there is no telemetry, and secret evidence is masked before it ever leaves the Rust core. The single exception is the update check you trigger yourself (off by default).
 
 ## Hosting & Sync
 
@@ -233,7 +233,8 @@ repo-balance/
 │       │   └── state.rs      # Scan state management
 │       ├── capabilities/     # Minimal permission set
 │       ├── icons/            # App icons
-│       ├── tauri.conf.json   # Tauri config (CSP / window / bundling)
+│       ├── tauri.conf.json   # Tauri config (CSP / window / bundling / update endpoint & public key)
+│       ├── tauri.updater.conf.json # Release-only overlay (createUpdaterArtifacts, merged in CI)
 │       └── build.rs          # tauri-build
 ├── ui/                       # Vue 3 frontend project
 │   ├── src/
@@ -252,22 +253,24 @@ repo-balance/
 │   ├── roadmap.md            # Authoritative roadmap (current state / goals / acceptance)
 │   ├── custom-rules.md       # Custom rule JSON format and behavior (Chinese)
 │   ├── ignore-rules.md       # Ignore-rule syntax, built-in defaults, editor & CLI semantics
+│   ├── distribution.md       # Release & distribution handbook (update signing / package manifests / release notes)
 │   └── ci-integration.md     # CI integration guide
 ├── design/                   # Brand assets
 │   ├── icon.svg              # App icon source
 │   ├── preview.png           # 1024×1024 icon preview (usable directly as a repo avatar)
 │   └── preview-64.png        # 64×64 icon
-├── scripts/                  # Fixture scripts (build-demo-fixture.sh)
+├── scripts/                  # Demo fixture / advisory index / release notes / package manifests
 └── Cargo.toml                # Workspace root
 ```
 
 ## Security Design
 
 - **CSP**: `default-src 'self'` (no external resource loading)
-- **Minimal permissions**: `core:default` + `dialog:allow-open` + `core:event:default` (no fs/shell)
+- **Minimal permissions**: `core:default` + `dialog:allow-open` + `core:event:default` + `updater:default` + `process:default` (no fs/shell)
 - **Path sources**: system directory picker only — no free-text path input
 - **Local writes**: besides reports the user exports explicitly, the only files written are `scan-history.json` in the app data directory and — the one write into the repository being checked — `.repobalance-ignore` when the user saves ignore rules (they must travel with the repository); the git object database and commit history are never touched
-- **Fully local, zero network**: nothing is ever sent to a remote server
+- **Offline by default**: scanning, scoring, history, export and advisory-DB import make no network request; the only outbound call is the manual update check (off by default, optional check-on-startup), carrying no repository content or device identifiers
+- **Signed updates**: installers are signed with a minisign private key in the release pipeline and the public key is embedded; a missing or mismatched signature is rejected
 - **Masked evidence**: evidence is masked when constructed in `rb-core`; export/IPC never restores it
 - **Zero Tauri dependency in `rb-core`**: the core compiles as a standalone CLI, decoupled from any UI framework
 
@@ -311,9 +314,11 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 - [x] **Remote repository checkup** — shallow-clone a URL into a temp directory (`TempDir` RAII cleans up automatically) and reuse the local pipeline; the report path is the URL. CLI `rb scan-url <url> [--depth N]`, plus a remote-URL entry on the connect view. HTTPS URLs work out of the box; `git@host:` relies on the `insteadOf` rewrite in your git config, and `ssh://` is not enabled (it reports back with a "use HTTPS instead" hint)
 - [x] **Health trend analysis** — the history view charts "total + five dimensions" over time per repository (inline SVG, no chart dependency); N/A dimensions break the line instead of being interpolated, legend chips toggle curves, and per-point tooltips show time and value
 - [x] **Bulk multi-repository checkup** — select several folders at once to build a sequential queue where one failing repository never aborts the batch; the dashboard shows batch progress plus per-repo score / findings / criticals / duration ranked by score, averages count finished repositories only, and finished runs are written to history and can jump straight back into their report
-- [x] **Frontend unit tests** — Vitest covers the store's config persistence / history merge and migration / score semantics / trend aggregation / batch scheduling state machine plus the ignore-rules editor's pure helpers (27 cases), and runs as part of the CI quality gate
+- [x] **Frontend unit tests** — Vitest covers the store's config persistence / history merge and migration / score semantics / trend aggregation / batch scheduling state machine, plus the ignore-rules editor's pure helpers and the update state machine (44 cases), and runs as part of the CI quality gate
 - [x] **Dedicated settings page** — checker toggles / thresholds / history scope / custom rules / the ignore-rules editor moved out of the connect view into a settings page (top-bar "Settings"), leaving connect with "pick repo → scale estimate → start scan"; settings are global and stored locally
 - [x] **Offline advisory DB management** — import a JSONL index from the settings page and see its status (entries / updated / size); validation runs before writing, so a corrupt or empty index never overwrites a working one; purely local, no network access
+- [x] **In-app updates** — the settings page checks GitHub Releases on demand, shows release notes and download progress, and restarts after installing; installers are verified with a minisign signature. **No background polling** — offline by default, a request happens only when you click the button or explicitly enable "check on startup" (see [`docs/distribution.md`](docs/distribution.md))
+- [x] **Distribution manifests & release notes** — `scripts/gen-packaging-manifests.sh` turns the real release asset checksums into Homebrew Cask / Scoop / WinGet manifests that the release workflow attaches to the release; release bodies are extracted from CHANGELOG by `scripts/release-notes.sh`, so release notes and the changelog cannot drift apart
 
 ### Next (v0.2 ~ v0.3)
 
@@ -321,8 +326,8 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 
 ### Mid / long term (v0.5 → v1.0)
 
-- [ ] **Bundled advisory DB / auto-update** — the settings page can import a JSONL index and show its status, but the index is not bundled with the installer and is never auto-updated over the network (by the "purely local, zero network" design)
-- [ ] **Official GitHub Action**, auto-update, Homebrew / Scoop / Winget distribution
+- [ ] **Bundled advisory DB** — the settings page can import a JSONL index and show its status, but the index is not bundled with the installer and is never auto-updated over the network (it is still generated by `scripts/build-vuln-index.sh`, so a checkup never becomes a network query)
+- [ ] **Official GitHub Action** — package the CLI as a CI action that runs a checkup on PRs and comments the result
 - [ ] **Team report collaboration** — Report as Code, closing remediation items through PR review
 
 ## Contributing

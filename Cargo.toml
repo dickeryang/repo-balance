@@ -27,6 +27,10 @@ thiserror = "2.0"
 tempfile = "3"
 tauri = "2"
 tauri-plugin-dialog = "2"
+# 更新插件是应用内唯一的出站网络通道（且仅由用户在设置页显式触发）；
+# process 插件只用于更新安装后重启自身。
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 tauri-build = "2"
 
 [profile.release]
