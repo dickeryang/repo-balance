@@ -35,12 +35,37 @@ export function loadConfig(): ScanConfig {
   return { ...DEFAULT_CONFIG }
 }
 
+/** 单条历史的最小形状守卫：缺关键字段的条目（旧版本结构 / 手工构造 /
+ * 半截写入）会让 mergeHistory 排序得 NaN、trendSeries 抛 TypeError、
+ * compareHistory 得 NaN——直接丢弃比崩溃或污染趋势图诚实。 */
+function isHistoryEntry(e: unknown): e is HistoryEntry {
+  if (!e || typeof e !== 'object') return false
+  const o = e as Partial<HistoryEntry>
+  return (
+    typeof o.id === 'string' &&
+    o.id !== '' &&
+    typeof o.savedAt === 'number' &&
+    Number.isFinite(o.savedAt) &&
+    typeof o.repoPath === 'string' &&
+    !!o.report &&
+    Array.isArray(o.report.radarPoints) &&
+    Array.isArray(o.report.findings)
+  )
+}
+
 /** 解析历史 JSON；非法内容回退空列表（旧数据损坏不应阻断启动）。 */
 export function parseHistory(raw: string | null): HistoryEntry[] {
   if (!raw) return []
   try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as HistoryEntry[]) : []
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    const valid = parsed.filter(isHistoryEntry)
+    if (valid.length !== parsed.length) {
+      console.warn(
+        `扫描历史中有 ${parsed.length - valid.length} 条结构不兼容的条目，已跳过`,
+      )
+    }
+    return valid
   } catch {
     return []
   }

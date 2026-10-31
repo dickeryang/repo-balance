@@ -20,14 +20,25 @@ pub use manifest::{parse_dep_file, ParsedDep};
 /// 也便于用户用文本工具检视。
 pub fn load_index(jsonl: &str) -> Result<VulnIndex, RbError> {
     let mut entries = Vec::new();
-    for (no, line) in jsonl.lines().enumerate() {
+    let mut bad_lines = 0usize;
+    for line in jsonl.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let advisory: Advisory = serde_json::from_str(line)
-            .map_err(|e| RbError::VulnDb(format!("第 {} 行解析失败: {e}", no + 1)))?;
-        entries.push(advisory);
+        // 坏行跳过而非整库失败：一行手改坏不该废掉整个漏洞库（那样依赖维度
+        // 会静默退化为「不查漏洞」，而状态页仍显示「已载入」）；全坏才报错。
+        match serde_json::from_str::<Advisory>(line) {
+            Ok(advisory) => entries.push(advisory),
+            Err(_) => bad_lines += 1,
+        }
+    }
+    if entries.is_empty() {
+        return Err(RbError::VulnDb(if bad_lines > 0 {
+            format!("漏洞库索引无有效条目（{bad_lines} 行均无法解析）")
+        } else {
+            "漏洞库索引为空（无有效条目）".to_owned()
+        }));
     }
     Ok(VulnIndex::new(entries))
 }
@@ -67,20 +78,26 @@ mod tests {
             .is_empty());
     }
 
-    /// 坏行报错并带行号（便于定位转换脚本产出的问题）。
+    /// 坏行跳过而非整库失效（一行手改坏不该废掉整个漏洞库）；全部无效才报错。
     #[test]
-    fn 加载索引_坏行带行号报错() {
-        let err = load_index("{\"id\":\"GHSA-1\",\"eco\":\"npm\",\"pkg\":\"a\"}\nnot-json\n")
-            .unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains('2'), "应指出第 2 行: {msg}");
+    fn 加载索引_坏行跳过_全坏报错() {
+        // 1 好行 + 1 坏行：好行保留，漏洞匹配能力不因单行损坏丢失
+        let index = load_index("{\"id\":\"GHSA-1\",\"eco\":\"npm\",\"pkg\":\"a\"}\nnot-json\n")
+            .expect("含坏行的库不应整体失败");
+        assert!(!index.is_empty(), "好行应被保留");
+
+        // 全部无效：报错（先验后写据此拒绝导入）
+        let err = load_index("garbage\nalso-bad\n").unwrap_err();
+        assert!(err.to_string().contains("2 行"), "{err}");
+
+        // 空库：报错
+        assert!(load_index("\n# 注释\n").is_err());
     }
 
-    /// 空输入得到空索引（等价于未接入漏洞库）。
+    /// 空输入报错而非空索引：调用方（壳层）对「文件不存在」与「文件为空」
+    /// 的处理都是不接入漏洞库，无需用空索引区分。
     #[test]
-    fn 加载索引_空输入为空库() {
-        let idx = load_index("").unwrap();
-        assert!(idx.is_empty());
-        assert!(idx.matches(VulnEcosystem::Go, "gin", "1.0.0").is_empty());
+    fn 加载索引_空输入报错() {
+        assert!(load_index("").is_err());
     }
 }

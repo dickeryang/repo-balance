@@ -30,6 +30,18 @@ TOP_FINDINGS = 10
 SEVERITY_ICON = {"critical": "🔴", "warning": "🟠", "info": "🔵"}
 
 
+def md_cell(text) -> str:
+    """表格单元格转义：竖线破坏列、换行破坏行、反引号破坏 code span。
+    id/title 可来自用户自定义规则，不能当作可信的纯文本。"""
+    return (
+        str(text)
+        .replace("|", "\\|")
+        .replace("\r", " ")
+        .replace("\n", " ")
+        .replace("`", "'")
+    )
+
+
 def format_comment(report: dict) -> str:
     """报告 JSON → Markdown。报告字段口径见 `rb scan --json`。"""
     total = report.get("totalScore")
@@ -59,7 +71,7 @@ def format_comment(report: dict) -> str:
         lines.append("|---|---|")
         for f in findings[:TOP_FINDINGS]:
             icon = SEVERITY_ICON.get(f.get("severity", ""), "•")
-            lines.append(f"| {icon} {f.get('severity', '')} | `{f.get('id', '')}` {f.get('title', '')} |")
+            lines.append(f"| {icon} {f.get('severity', '')} | `{md_cell(f.get('id', ''))}` {md_cell(f.get('title', ''))} |")
         rest = findings[TOP_FINDINGS:]
         if rest:
             lines.append("")
@@ -69,7 +81,7 @@ def format_comment(report: dict) -> str:
             lines.append("|---|---|")
             for f in rest:
                 icon = SEVERITY_ICON.get(f.get("severity", ""), "•")
-                lines.append(f"| {icon} {f.get('severity', '')} | `{f.get('id', '')}` {f.get('title', '')} |")
+                lines.append(f"| {icon} {f.get('severity', '')} | `{md_cell(f.get('id', ''))}` {md_cell(f.get('title', ''))} |")
             lines.append("")
             lines.append("</details>")
     else:
@@ -131,7 +143,14 @@ def main() -> int:
         print(f"[repobalance] 错误: 无法读取报告 {report_path}: {e}", file=sys.stderr)
         return 1
 
-    body = format_comment(report)[:MAX_BODY_CHARS]
+    # 行边界截断：硬截在字符中间会把表格行 / <details> 切成破损结构
+    full = format_comment(report)
+    if len(full) > MAX_BODY_CHARS:
+        cut = full[:MAX_BODY_CHARS]
+        nl = cut.rfind("\n")
+        body = cut[:nl] if nl > 0 else cut
+    else:
+        body = full
 
     if "--print" in argv:
         print(body)

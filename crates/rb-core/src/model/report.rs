@@ -33,7 +33,52 @@ impl Scores {
         if covered.is_empty() {
             return None;
         }
-        Some((covered.iter().map(|s| *s as u32).sum::<u32>() / covered.len() as u32) as u8)
+        // 四舍五入（非整数截断）：与前端 totalOrNullOf、rb-app 的 HTML/PDF 导出
+        // 共用同一口径——整数截断会让 CLI --json 的总分比界面少 1 分（75.5 → 75 vs 76）
+        Some(
+            (covered.iter().map(|s| *s as u32).sum::<u32>() as f64 / covered.len() as f64).round()
+                as u8,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 总分四舍五入而非整数截断，与 GUI / 导出口径一致。
+    #[test]
+    fn 总分_四舍五入口径() {
+        let scores = Scores {
+            structure: Some(90),
+            history: Some(61),
+            branches: None,
+            deps: None,
+            security: None,
+        };
+        assert_eq!(scores.total(), Some(76)); // 75.5 → 76（截断会得 75）
+        assert_eq!(
+            Scores {
+                structure: Some(90),
+                history: Some(85),
+                branches: Some(78),
+                deps: Some(40),
+                security: None,
+            }
+            .total(),
+            Some(73) // 73.25 → 73
+        );
+        assert_eq!(
+            Scores {
+                structure: None,
+                history: None,
+                branches: None,
+                deps: None,
+                security: None,
+            }
+            .total(),
+            None
+        );
     }
 }
 

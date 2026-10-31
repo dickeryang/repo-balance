@@ -98,7 +98,8 @@ async function exportRules() {
   }
   try {
     const path = await ipc.exportCustomRules(rules.value)
-    if (path) ElMessage.success(t('rules.exported').replace('{path}', path))
+    // 函数式替换：字符串形式的第二参会让 $&、$' 等模式注入（路径可能含 $）
+    if (path) ElMessage.success(t('rules.exported').replace('{path}', () => path))
   } catch (e) {
     ElMessage.error(`${t('rules.exportFailed')}: ${String(e)}`)
   }

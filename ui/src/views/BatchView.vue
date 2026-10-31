@@ -101,7 +101,8 @@ function fmtDuration(ms: number): string {
         <span class="dim">
           {{
             currentName
-              ? t('batch.current').replace('{name}', currentName)
+              // 函数式替换：仓库名可能含 $& 等 replace 特殊模式
+              ? t('batch.current').replace('{name}', () => currentName)
               : t('batch.finished')
           }}
         </span>

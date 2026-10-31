@@ -339,8 +339,9 @@ pub(crate) fn load_vuln_index(app: &tauri::AppHandle) -> Option<std::sync::Arc<V
 
 /// 校验漏洞库索引文本并返回条目数。
 ///
-/// 导入前**先验后写**：解析失败或空库一律拒绝落盘，避免损坏 / 空索引覆盖
-/// 既有可用库（那样依赖维度会从「能查漏洞」静默退化为「不查」）。
+/// 导入前**先验后写**：空库（无任何有效条目）一律拒绝落盘，避免空索引覆盖
+/// 既有可用库（那样依赖维度会从「能查漏洞」静默退化为「不查」）；个别坏行
+/// 跳过（与 `load_index` 宽容语义一致，好行保留即部分可用）。
 /// 单独抽函数以便单测——对话框部分依赖运行时，无法在测试中驱动。
 fn validate_vuln_index(text: &str) -> std::result::Result<usize, String> {
     let index = rb_core::vuln::load_index(text).map_err(|e| format!("漏洞库索引解析失败: {e}"))?;
@@ -394,8 +395,9 @@ pub async fn import_vuln_index(app: tauri::AppHandle) -> Result<Option<usize>, S
 
 /// 查询离线漏洞库状态：不存在 / 目录不可用时返回 `None`。
 ///
-/// 条目数按「非空非注释行」统计（与 `load_index` 的解析口径一致），不整体
-/// 反序列化——状态展示不值得为此解析全库；真实可用性由扫描时的载入逻辑判断。
+/// 条目数按「非空非注释行」近似统计（不整体反序列化——状态展示不值得为此
+/// 解析全库）；`load_index` 会跳过解析失败的行，故坏行存在时该数字略大于
+/// 实际可用条数。真实可用性由扫描时的载入逻辑判断。
 #[tauri::command]
 pub async fn vuln_index_info(app: tauri::AppHandle) -> Result<Option<VulnIndexInfoDto>, String> {
     let Ok(dir) = app.path().app_data_dir() else {
@@ -1198,15 +1200,22 @@ mod tests {
         assert_eq!(validate_vuln_index(text).unwrap(), 2);
     }
 
-    /// 漏洞库校验：空库与坏行均被拒绝（不覆盖既有可用索引）。
+    /// 漏洞库校验：空库被拒绝（不覆盖既有可用索引）；坏行跳过（与
+    /// load_index 的宽容语义一致），好行保留、全坏才拒绝。
     #[test]
-    fn 漏洞库校验_空库与坏行被拒绝() {
+    fn 漏洞库校验_空库被拒绝_坏行跳过() {
         assert!(validate_vuln_index("").unwrap_err().contains("为空"));
         assert!(validate_vuln_index("# only comment\n")
             .unwrap_err()
             .contains("为空"));
         let err = validate_vuln_index("not-json\n").unwrap_err();
-        assert!(err.contains("解析失败"), "{err}");
+        assert!(err.contains("无有效条目"), "{err}");
+        // 1 好行 + 1 坏行：好行保留（返回有效条目数 1）
+        let text = concat!(
+            r#"{"id":"GHSA-1","eco":"npm","pkg":"lodash","ranges":[{"introduced":"0","fixed":"4.17.21"}]}"#,
+            "\nnot-json\n"
+        );
+        assert_eq!(validate_vuln_index(text).unwrap(), 1);
     }
 
     /// 未限流（全部为空）不产出范围说明。

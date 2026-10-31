@@ -284,6 +284,10 @@ pub struct ScanReportDto {
     pub duration_ms: u64,
     pub engine_version: String,
     /// 取消的扫描推送 `cancelled=true` 的部分报告，前端照常渲染「部分结果」。
+    ///
+    /// 字段演进纪律：后加字段必须有 `#[serde(default)]`，否则旧版持久化数据
+    /// 经 IPC 反序列化会报 missing field 直接失败。
+    #[serde(default)]
     pub cancelled: bool,
     /// 历史范围受限时的告知文案；全量扫描为 `None`。
     ///

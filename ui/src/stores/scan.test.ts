@@ -249,6 +249,21 @@ describe('历史纯函数', () => {
     expect(parseHistory('{"a":1}')).toEqual([])
   })
 
+  it('parseHistory_结构不兼容的条目被跳过不崩溃', () => {
+    // 旧版本结构 / 手工构造的条目：缺 report 或 savedAt 非法会让
+    // mergeHistory 排序得 NaN、trendSeries 抛 TypeError，必须丢弃
+    const raw = JSON.stringify([
+      makeEntry('good', 10),
+      { id: 'no-report', savedAt: 5, repoPath: '/r' },
+      { id: 'bad-time', repoPath: '/r', report: makeReport('/r') },
+      'totally-not-an-object',
+    ])
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const parsed = parseHistory(raw)
+    warnSpy.mockRestore()
+    expect(parsed.map((e) => e.id)).toEqual(['good'])
+  })
+
   it('mergeHistory_同id保留现有条目并按保存时间倒序截断', () => {
     const current = [makeEntry('b', 200), makeEntry('a', 100)]
     const incoming = [makeEntry('a', 999), makeEntry('c', 300)]
