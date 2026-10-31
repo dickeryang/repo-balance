@@ -32,6 +32,28 @@ git tag v0.5.0 → push tag
 
 ---
 
+## 〇·一、发布检查单（每次发版按序执行）
+
+1. **升版本号**：`bash scripts/bump-version.sh 0.5.0`
+   （一次性同步 `Cargo.toml` / `Cargo.lock` / `tauri.conf.json` /
+   `ui/package.json` + `package-lock.json` / `CITATION.cff`；`--dry-run` 可预览。
+   版本号分散在 5 个文件，**不要手改**——漏一处会导致安装包名与更新清单对不上）
+2. **补 CHANGELOG**：`CHANGELOG.md` 增加 `## [0.5.0] - YYYY-MM-DD` 小节
+   （Release 正文由 `scripts/release-notes.sh` 从这里提取，见「三」）
+3. **双端提交推送**：`git push origin master && git push github master`
+4. **确认签名私钥**：GitHub / AtomGit 的 `TAURI_SIGNING_PRIVATE_KEY` secret
+   已配置（见「密钥管理」）；未配置时发布仍会成功，但无 `latest.json`，
+   应用内更新不可用
+5. **打 tag**：`git tag v0.5.0 && git push origin v0.5.0 && git push github v0.5.0`
+6. **验收 Release 资产**：对照「打 tag 后的验收」逐项清点
+7. **人工分发**：把自动生成的清单推到 brew tap / Scoop bucket / winget-pkgs
+   （见「二」各自的步骤）
+
+> 官方 GitHub Action（`dickeryang/repo-balance`）消费的是 Release 里的 CLI 产物，
+> 因此第 5 步的 tag 同时也是 Action 用户可引用的版本。
+
+---
+
 ## 一、应用内更新（`tauri-plugin-updater`）
 
 ### 行为约定

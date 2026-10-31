@@ -2,11 +2,11 @@
 
 > 本文档是仓衡的权威规划文档，与 README「规划」章节保持一致。
 > 规则：每个版本发布时同步更新勾选状态；**未完成的功能不得在 README 中标记为已完成**。
-> 最近更新：2026-10-30
+> 最近更新：2026-10-31
 
 ---
 
-## 〇、现状盘点（2026-10-30）
+## 〇、现状盘点（2026-10-31）
 
 ### 已落地
 
@@ -49,6 +49,8 @@
 | 前端单元测试 | ✅ | Vitest（node 环境 + 内存 `localStorage`，零 DOM 依赖）：覆盖配置持久化 / 历史合并与迁移 / 评分口径 / 趋势聚合 / 批量调度状态机 / 忽略规则编辑器纯函数 / 更新流程状态机（44 用例），已接入 CI 质量门禁 |
 | 应用内更新 | ✅ | `tauri-plugin-updater` + minisign 验签：设置页手动检查、展示说明与下载进度、安装后重启；**默认不联网**（无后台轮询），可选「启动时自动检查」；发布流水线按签名私钥产出 `.sig` 与 `latest.json`，密钥缺失时降级为「仅手动下载」并给出 warning |
 | 分发清单与发布说明 | ✅ | `scripts/gen-packaging-manifests.sh` 按真实资产 SHA-256 生成 Homebrew Cask / Scoop / WinGet 清单并附到 Release（推送 tap / bucket / winget-pkgs 仍由维护者提 PR，见 [`distribution.md`](distribution.md)）；`scripts/release-notes.sh` 从 CHANGELOG 提取 Release 正文，缺小节时回退通用文案；Windows 额外产出便携 zip 供 Scoop 使用 |
+| 官方 GitHub Action | ✅ | `uses: dickeryang/repo-balance@v0` 一行接入：Release 内预编译 CLI 本地体检（composite，非 docker），Critical 失败 + 可选 PR 原位评论 + `total-score` 等输出；三平台 CLI 产物随 Release 分发 |
+| 版本号一键同步 | ✅ | `scripts/bump-version.sh` 同步 `Cargo.toml` / `Cargo.lock` / `tauri.conf.json` / `ui/package.json` + `package-lock.json` / `CITATION.cff`（lock 只动根版本两处），`docs/distribution.md` 附发布检查单 |
 | 双端同步 | ✅ | 同一提交推送 AtomGit + GitHub（G-Star 要求同步不超过 1 个月） |
 
 ### 关键缺口
@@ -191,12 +193,15 @@
 
 **阶段目标：建立生态位，从应用走向平台。**
 
+- [x] **官方 GitHub Action** ✅ 已于 2026-10-31 落地
+  - composite action（`action.yml`）：下载 Release 内预编译 CLI → 本地体检 → Critical 使任务失败 → 可选 PR 原位评论（稳定标记，重复运行只编辑同一条）；
+  - **刻意未用 docker action**（与原规划不同，理由如实记录）：复用 Release 的 CLI 产物免去每次运行的容器内 Rust 编译（分钟级 → 秒级），也不需要维护镜像仓库；打包流水线新增三平台 CLI 产物（darwin-universal / linux-x64 / windows-x64，Linux 要求 glibc ≥ 2.35）；
+  - 单次扫描两用：`--json` 模式同样以退出码 2 反映 Critical，报告与门禁不扫两遍；输出 `total-score` / `critical-count` / `conclusion` 供自定义门禁；
+  - fork PR 的默认 token 只读，评论 403 降级为警告，不让体检结论变红；
+  - 配套 GitLab CI 模板与 pre-commit hook **未做**（`docs/ci-integration.md` 的通用 Shell 示例可替代，待真实需求出现再补）。
 - [ ] **检查器插件机制（WASM 沙箱）**
   - 基于 wasmtime / extism，允许第三方以任意语言编写检查器；
   - **优先 WASM 而非动态库（dylib）**：沙箱隔离、跨平台、无 ABI 兼容负担。
-- [ ] **官方 GitHub Action**
-  - CLI 封装为 docker action，CI 中一行 `uses:` 触发体检并评论 PR；
-  - 配套 GitLab CI 模板与 pre-commit hook。
 - [ ] **团队报告协作（Report as Code）**
   - 报告存入团队 Git 仓库，整改项经 PR 评审闭环；
   - 可选加密分享链接作为云增值，默认保持纯本地。

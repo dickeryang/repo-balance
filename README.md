@@ -313,7 +313,7 @@ repo-balance/
 ### 中长期（v0.5 → v1.0）
 
 - [ ] **漏洞库随包分发**：设置页已支持导入 JSONL 索引并查看状态，但索引未随安装包分发，也不做联网自动更新（索引仍由 `scripts/build-vuln-index.sh` 手工生成，避免把体检变成联网查询）
-- [ ] **官方 GitHub Action**：把 CLI 封装为 CI 动作，PR 中自动跑体检并评论结论
+- [x] **官方 GitHub Action**：`uses: dickeryang/repo-balance@v0` 一行接入——下载 Release 内预编译 CLI 本地体检（不上传代码），Critical 结论使任务失败，可在 PR 上原位更新报告评论；输出总分 / Critical 数供自定义门禁（用法见 [`docs/ci-integration.md`](docs/ci-integration.md)）
 - [ ] **团队报告协作**：Report as Code，整改项 PR 评审闭环
 
 ## 参与贡献

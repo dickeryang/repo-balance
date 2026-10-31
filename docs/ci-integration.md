@@ -87,9 +87,62 @@ rb ignore .
 
 > `rb ignore` 独立口径：0 = 检查通过（含仓库未配置忽略规则），1 = 存在可疑规则 / 读取失败。
 
-## GitHub Actions
+## 官方 GitHub Action（一行接入）
 
-参考 `.github/workflows/repo-balance.yml`，核心步骤（在**仓库根目录**执行，产物落在 `target/release/`）：
+本仓库自带 composite action：下载 Release 里的预编译 CLI → 本地体检 → 出报告，
+存在 Critical 结论时任务失败，可选在 PR 上原位更新评论：
+
+```yaml
+# .github/workflows/repobalance.yml
+name: 仓衡体检
+on: [push, pull_request]
+permissions:
+  contents: read
+  pull-requests: write   # 仅 comment: true 时需要
+jobs:
+  checkup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dickeryang/repo-balance@v0
+        with:
+          path: .
+          args: --max-commits 500      # 大仓库建议限范围
+          comment: true                # PR 上更新体检评论
+```
+
+### 输入
+
+| 输入 | 默认 | 说明 |
+|---|---|---|
+| `path` | `.` | 要体检的仓库或目录 |
+| `args` | 空 | 附加 CLI 参数（`--max-commits` / `--since-days` / `--rules` / `--vuln-db`） |
+| `cli-version` | `latest` | CLI 来源 Release tag；建议 pin 到具体版本保证可复现 |
+| `fail-on` | `critical` | `critical` = 存在 Critical 失败；`never` = 只报告不拦截 |
+| `comment` | `false` | 在 PR 上发表 / 原位更新体检评论（仅 pull_request 事件） |
+| `report-artifact` | `repo-balance-report` | JSON 报告 artifact 名；留空不上传 |
+| `token` | `github.token` | 下载 CLI 与评论用；fork PR 场景建议传 PAT |
+
+### 输出
+
+`total-score`（总分，全部 N/A 时为空）、`critical-count`、`conclusion`（`pass` / `critical`），
+可用于后续步骤自定义门禁（如总分低于阈值时告警）。
+
+### 行为与边界
+
+- **单次扫描两用**：`--json` 模式在存在 Critical 时同样以退出码 2 结束，报告与门禁
+  不需要扫两遍；退出码口径见上文「退出码」；
+- **评论原位更新**：评论带稳定标记，重复运行只编辑同一条，不会刷屏；fork PR 的
+  默认 token 只读，评论 403 时降级为警告（体检结论不受影响）；
+- **CLI 产物**：action 下载 Release 资产 `repo-balance-cli-<platform>.tar.gz`，自
+  **包含该资产的 Release 起**可用（此前版本的 Release 没有 CLI 产物，会 404）；
+  Linux 产物在 ubuntu-22.04 构建，要求 glibc ≥ 2.35；macOS 为 universal 双架构；
+- 引用建议 pin 到 tag（如 `@v0.5.0`）或 commit SHA，避免 master 变更影响流水线。
+
+## 自建步骤（源码编译）
+
+不想用 Action 或在非 GitHub 平台，可参考 `.github/workflows/repo-balance.yml` 的核心步骤
+（在**仓库根目录**执行，产物落在 `target/release/`）：
 
 ```yaml
 - name: 构建 rb CLI

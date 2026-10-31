@@ -15,6 +15,15 @@
 
 ### 新增
 
+- **官方 GitHub Action（其它仓库一行接入体检）**：`uses: dickeryang/repo-balance@v0`
+  - composite action 下载 Release 内预编译 CLI（darwin-universal / linux-x64 / windows-x64），**本地扫描零上传**；存在 Critical 结论时任务失败（`fail-on: never` 可只报告不拦截），输出 `total-score` / `critical-count` / `conclusion` 供自定义门禁，JSON 报告默认上传 artifact
+  - 可选 PR 评论：带稳定标记**原位更新**（重复运行不刷屏），展示总分 / 三级计数 / 受限扫描范围与结论列表；fork PR 默认 token 只读时 403 降级为警告，不让体检结论变红
+  - **刻意未做 docker action**（原规划的调整，理由如实记录）：复用 Release 的 CLI 产物免去每次运行的容器内 Rust 编译（分钟级 → 秒级），也无需维护镜像仓库；`build-desktop.yml` 相应新增三平台 CLI 产物（Linux 产物要求 glibc ≥ 2.35）
+  - 单次扫描两用：`--json` 模式同样以退出码 2 反映 Critical，报告与门禁不需要扫两遍
+  - 用法、输入 / 输出与边界见 `docs/ci-integration.md`
+- **版本号一键同步（`scripts/bump-version.sh`）**：`Cargo.toml` / `Cargo.lock` / `tauri.conf.json` / `ui/package.json` + `package-lock.json` / `CITATION.cff` 五处文件一次同步
+  - `--dry-run` 预览；**package-lock 只替换根版本两处**（顶层 + `packages[""]`）——依赖树中存在恰好 0.1.0 的第三方包，全局替换会误伤
+  - `docs/distribution.md` 新增「发布检查单」：升版本 → 补 CHANGELOG → 双端推送 → 签名 secret → 打 tag → 验收资产 → 人工分发，与 bump 脚本衔接
 - **应用内更新（可选、手动触发）**：设置页新增「软件更新」卡片，检查 → 展示版本说明与下载进度 → 安装 → 一键重启
   - `tauri-plugin-updater` + `@tauri-apps/plugin-updater` 负责检查、下载与安装，`tauri-plugin-process` 负责安装后重启；新增能力 `updater:default` / `process:default`
   - **默认不联网**：没有后台轮询；只有用户点击「检查更新」或显式开启「启动时自动检查」（本机偏好，默认关闭）时才发起请求，且只取版本元数据与安装包，不携带仓库内容、路径、扫描结果或设备标识

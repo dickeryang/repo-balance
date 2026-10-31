@@ -1,0 +1,142 @@
+name: 'RepoBalance 体检'
+description: >
+  五维评分的本地 Git 仓库体检：结构 / 安全 / 分支 / 历史 / 依赖。
+  纯本地扫描、evidence 掩码；存在 Critical 结论时任务失败，可选在 PR 上评论报告。
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  path:
+    description: '要体检的仓库或目录路径'
+    required: false
+    default: '.'
+  args:
+    description: '附加 CLI 参数，如 --max-commits 500 / --since-days 180 / --rules ci/rules.json'
+    required: false
+    default: ''
+  cli-version:
+    description: 'rb CLI 的来源 Release tag（latest 或 v0.5.0 这样的具体 tag）'
+    required: false
+    default: 'latest'
+  fail-on:
+    description: "critical：存在 Critical 结论时任务失败（默认）；never：只报告不拦截"
+    required: false
+    default: 'critical'
+  comment:
+    description: '在 PR 上发表 / 更新体检评论（仅 pull_request 事件生效）'
+    required: false
+    default: 'false'
+  report-artifact:
+    description: 'JSON 报告上传为 artifact 的名称；留空则不上传'
+    required: false
+    default: 'repo-balance-report'
+  token:
+    description: '用于下载 CLI 与发表评论的 GitHub token（fork PR 评论需要 pull-requests: write）'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  total-score:
+    description: '总分（已覆盖维度平均；全部维度 N/A 时为空）'
+    value: ${{ steps.scan.outputs.total_score }}
+  critical-count:
+    description: 'Critical 结论数量'
+    value: ${{ steps.scan.outputs.critical_count }}
+  conclusion:
+    description: 'pass 或 critical'
+    value: ${{ steps.scan.outputs.conclusion }}
+
+runs:
+  using: composite
+  steps:
+    # CLI 来自本仓库 Release 的预编译产物（darwin-universal / linux-x64 /
+    # windows-x64），不在运行时编译 Rust —— 避免每次体检都付出分钟级构建成本。
+    - name: 下载 rb CLI
+      id: setup
+      shell: bash
+      env:
+        RB_VERSION: ${{ inputs.cli-version }}
+      run: |
+        set -euo pipefail
+        case "$RUNNER_OS" in
+          macOS)  asset="repo-balance-cli-darwin-universal.tar.gz"; bin="rb" ;;
+          Linux)  asset="repo-balance-cli-linux-x64.tar.gz";        bin="rb" ;;
+          Windows) asset="repo-balance-cli-windows-x64.tar.gz";     bin="rb.exe" ;;
+          *) echo "::error::不支持的 runner: $RUNNER_OS（支持 macOS / Linux / Windows x64）"; exit 1 ;;
+        esac
+        if [[ "$RB_VERSION" == "latest" ]]; then
+          url="https://github.com/dickeryang/repo-balance/releases/latest/download/$asset"
+        else
+          url="https://github.com/dickeryang/repo-balance/releases/download/$RB_VERSION/$asset"
+        fi
+        # Windows 的 RUNNER_TEMP 是反斜杠路径，统一成正斜杠（Git Bash 下才能可靠执行）
+        bin_dir="${RUNNER_TEMP//\\//}/repobalance-bin"
+        mkdir -p "$bin_dir"
+        echo "::group::下载 $asset"
+        curl -fSL --retry 3 --retry-delay 2 -o "$RUNNER_TEMP/$asset" "$url"
+        tar -xzf "$RUNNER_TEMP/$asset" -C "$bin_dir"
+        rm -f "$RUNNER_TEMP/$asset"
+        echo "::endgroup::"
+        chmod +x "$bin_dir/$bin"
+        echo "bin=$bin_dir/$bin" >> "$GITHUB_OUTPUT"
+
+    # 单次扫描同时给出机器可读报告与退出码（--json 也会在存在 Critical 时
+    # 退出码 2，无需为门禁和报告各扫一遍）。
+    - name: 运行体检
+      id: scan
+      shell: bash
+      env:
+        RB_BIN: ${{ steps.setup.outputs.bin }}
+        RB_PATH: ${{ inputs.path }}
+        RB_ARGS: ${{ inputs.args }}
+        RB_FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        set -euo pipefail
+        report="repobalance-report.json"
+        code=0
+        # shellcheck disable=SC2086
+        "$RB_BIN" scan "$RB_PATH" --json $RB_ARGS > "$report" || code=$?
+        if [[ "$code" -eq 1 ]]; then
+          echo "::error::rb 体检运行出错（仓库无法打开 / 参数非法等），详见上方日志"
+          exit 1
+        fi
+        # 结果直接写入 GITHUB_OUTPUT 文件（不经 eval，避免引号与换行陷阱）
+        python3 -c '
+        import json, sys
+        data = json.load(open(sys.argv[1], encoding="utf-8"))
+        with open(sys.argv[2], "a", encoding="utf-8") as out:
+            total = data.get("totalScore")
+            out.write("total_score=" + (str(total) if total is not None else "") + "\n")
+            out.write("critical_count=" + str(data.get("critical", 0)) + "\n")
+            out.write("conclusion=" + ("critical" if data.get("critical", 0) > 0 else "pass") + "\n")
+        ' "$report" "$GITHUB_OUTPUT"
+        conclusion="$(grep -m1 "^conclusion=" "$GITHUB_OUTPUT" | cut -d= -f2)"
+        critical_count="$(grep -m1 "^critical_count=" "$GITHUB_OUTPUT" | cut -d= -f2)"
+        if [[ "$conclusion" == "critical" ]]; then
+          echo "::error::存在 $critical_count 条 Critical 结论"
+          if [[ "$RB_FAIL_ON" != "never" ]]; then
+            exit 1
+          fi
+        fi
+
+    - name: 上传 JSON 报告
+      if: ${{ always() && inputs.report-artifact != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.report-artifact }}
+        path: repobalance-report.json
+        if-no-files-found: error
+
+    # 评论走 issue comment API 并按标记原位更新，避免每次 push 刷出一条新评论。
+    # fork PR 的 github.token 只读，403 时降级为警告而不是让体检任务变红。
+    - name: 发表 PR 评论
+      if: ${{ always() && inputs.comment == 'true' && github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        RB_TOKEN: ${{ inputs.token }}
+        RB_REPO: ${{ github.repository }}
+        RB_PR_NUMBER: ${{ github.event.pull_request.number }}
+        RB_REPORT: repobalance-report.json
+        RB_SCRIPT: ${{ github.action_path }}/scripts/action-comment.py
+      run: python3 "$RB_SCRIPT"
