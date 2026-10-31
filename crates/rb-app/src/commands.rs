@@ -382,8 +382,13 @@ pub async fn import_vuln_index(app: tauri::AppHandle) -> Result<Option<usize>, S
         .app_data_dir()
         .map_err(|e| format!("无法定位应用数据目录: {e}"))?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建应用数据目录失败: {e}"))?;
-    std::fs::write(dir.join(VULN_INDEX_FILE_NAME), text)
-        .map_err(|e| format!("写入漏洞库失败: {e}"))?;
+    // 原子写（临时文件 + rename）：写入中途崩溃 / 断电 / 磁盘满不留半截
+    // JSONL——半截文件会让扫描时漏洞匹配静默失效，与状态页「已载入」脱节
+    // （与 save_scan_history 同一口径）。
+    let target = dir.join(VULN_INDEX_FILE_NAME);
+    let tmp = dir.join(format!("{VULN_INDEX_FILE_NAME}.tmp"));
+    std::fs::write(&tmp, &text).map_err(|e| format!("写入漏洞库失败: {e}"))?;
+    std::fs::rename(&tmp, &target).map_err(|e| format!("保存漏洞库失败: {e}"))?;
     Ok(Some(count))
 }
 
@@ -556,7 +561,19 @@ fn history_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 pub async fn load_scan_history(app: tauri::AppHandle) -> Result<String, String> {
     let path = history_file(&app)?;
     match std::fs::read_to_string(&path) {
-        Ok(content) if !content.trim().is_empty() => Ok(content),
+        Ok(content) if !content.trim().is_empty() => {
+            // 顶层数组校验：半截 / 被手改坏的文件若静默当空列表，前端解除
+            // 「暂停写入」后下一次写盘就会把既有历史覆盖丢失。报错让前端走
+            // 「载入失败 → 暂停写入」保护路径，宁可让用户手工修复也不丢数据。
+            match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(v) if v.is_array() => Ok(content),
+                _ => Err(
+                    "扫描历史文件已损坏（不是合法的 JSON 数组），已暂停写入以保护数据；\
+                     请手工备份 scan-history.json 后修复或删除它"
+                        .to_owned(),
+                ),
+            }
+        }
         Ok(_) => Ok("[]".to_owned()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok("[]".to_owned()),
         Err(e) => Err(format!("读取扫描历史失败: {e}")),

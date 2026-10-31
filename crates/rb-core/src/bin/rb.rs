@@ -101,6 +101,12 @@ fn main() -> ExitCode {
                         eprintln!("--since-days 必须大于 0");
                         return usage();
                     }
+                    // 上限防溢出：天文数字在「天数 → 秒」换算时会回绕出错误
+                    // 时间窗（release 静默产出空结论报告）
+                    Ok(n) if n > 365_000 => {
+                        eprintln!("--since-days 数值过大（上限 365000 天，约 1000 年）");
+                        return usage();
+                    }
                     Ok(n) => since_days = Some(n),
                     Err(_) => {
                         eprintln!("--since-days 参数非法: {raw}");
@@ -476,11 +482,21 @@ fn now_secs() -> i64 {
 }
 
 fn json_escape(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            // RFC 8259：所有 U+0000..=U+001F 必须转义——文件名 / 提交摘要里的
+            // 垂直制表、换页等裸控制字符会让 jq / JSON.parse 解析失败
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// 用法提示路径统一为非零退出码。
@@ -563,4 +579,20 @@ fn usage() -> ExitCode {
     eprintln!("  0  规则检查通过（或仓库未配置忽略规则）");
     eprintln!("  1  存在「写了却不会生效」的可疑规则 / 读取失败");
     ExitCode::from(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `--json` 输出的字符串必须始终是合法 JSON：控制字符（文件名里的
+    /// 垂直制表 / 换页等）一律转 `\u{xxxx}`，引号反斜杠照常转义。
+    #[test]
+    fn json_escape_控制字符与引号反斜杠() {
+        assert_eq!(json_escape("a\u{b}b"), "a\\u000bb");
+        assert_eq!(json_escape("\u{1}"), "\\u0001");
+        assert_eq!(json_escape("a\"b\\c\nd\te"), "a\\\"b\\\\c\\nd\\te");
+        // 常见路径 / 中文原样保留
+        assert_eq!(json_escape("src/main.rs 摘要"), "src/main.rs 摘要");
+    }
 }

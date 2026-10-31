@@ -38,7 +38,7 @@ impl Checker for BigFilesChecker {
         plan
     }
 
-    /// 双口径判定：工作区 `size > 阈值` → Warning；历史 `size >= 阈值` 且
+    /// 双口径判定：工作区 `size >= 阈值` → Warning；历史 `size >= 阈值` 且
     /// 路径不在工作区 → Critical（需重写历史）。切片未就绪时防御性返回空。
     fn check(&self, ctx: &ScanContext) -> Vec<Finding> {
         let threshold = ctx.config().big_file_threshold;

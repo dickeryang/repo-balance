@@ -219,11 +219,19 @@ export const useScanStore = defineStore('scan', () => {
     }
   }
 
+  /** 仓库快照代际号：快速切换仓库（A 慢 IO 未返回又选 B）时丢弃过期结果，
+   * 防止 A 的快照在 B 之后到达、把界面盖成「路径是 B、快照是 A」的错位组合。 */
+  let repoInfoToken = 0
+
   async function fetchRepoInfo(path: string) {
+    const token = ++repoInfoToken
     try {
-      repoInfo.value = await ipc.repoInfo(path)
+      const info = await ipc.repoInfo(path)
+      if (token !== repoInfoToken) return
+      repoInfo.value = info
       repoError.value = null
     } catch (e) {
+      if (token !== repoInfoToken) return
       repoInfo.value = null
       scaleEstimate.value = null
       repoError.value = String(e)
@@ -231,8 +239,11 @@ export const useScanStore = defineStore('scan', () => {
     }
     // 规模预估失败不影响扫描（只是少一条提示），静默降级。
     try {
-      scaleEstimate.value = await ipc.scanEstimate(path)
+      const est = await ipc.scanEstimate(path)
+      if (token !== repoInfoToken) return
+      scaleEstimate.value = est
     } catch {
+      if (token !== repoInfoToken) return
       scaleEstimate.value = null
     }
   }
@@ -612,8 +623,11 @@ export const useScanStore = defineStore('scan', () => {
     isCancelled.value = false
     progress.value = null
     currentView.value = 3
+    const token = ++repoInfoToken // 快照慢返回时不得盖掉后续状态
     try {
-      repoInfo.value = await ipc.repoInfo(item.path)
+      const info = await ipc.repoInfo(item.path)
+      if (token !== repoInfoToken) return
+      repoInfo.value = info
     } catch {
       /* 仓库不可达：保留报告视图，仅缺快照摘要 */
     }
@@ -648,6 +662,7 @@ export const useScanStore = defineStore('scan', () => {
       batchCancelled.value = true
     }
     scanToken++ // 使任何在途扫描的迟到事件全部失效
+    repoInfoToken++ // 在途的快照请求同样失效，回填被清空的状态没有意义
     unlistenScanEvents()
     currentView.value = 1
     selectedPath.value = null

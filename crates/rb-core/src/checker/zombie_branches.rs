@@ -71,7 +71,8 @@ impl Checker for ZombieBranchesChecker {
             }
             let age = reference - b.tip_commit.time;
             if age > threshold_secs {
-                findings.push(stale_finding(b, age / DAY_SECS));
+                let threshold_days = ctx.config().zombie_branch_days as i64;
+                findings.push(stale_finding(b, age / DAY_SECS, threshold_days));
                 continue;
             }
             if !b.has_upstream {
@@ -111,13 +112,14 @@ fn merged_finding(b: &BranchMeta) -> Finding {
     }
 }
 
-/// 超期未活跃 → Warning。
-fn stale_finding(b: &BranchMeta, age_days: i64) -> Finding {
+/// 超期未活跃 → Warning。标题中的阈值天数来自配置——硬编码「90 天」会在
+/// 用户改小阈值（如 30 天）后与 evidence 的「未活跃： 约 45 天」自相矛盾。
+fn stale_finding(b: &BranchMeta, age_days: i64, threshold_days: i64) -> Finding {
     Finding {
         id: format!("zombie-branches.stale:{}", b.name),
         severity: Severity::Warning,
         category: Category::Branches,
-        title: format!("超过 90 天未活跃的分支: {}", b.name),
+        title: format!("超过 {threshold_days} 天未活跃的分支: {}", b.name),
         evidence: format!(
             "{}\n未活跃: 约 {age_days} 天（以仓库最新分支 tip 为基准）",
             branch_evidence(b)
@@ -294,6 +296,8 @@ mod tests {
         let findings = ZombieBranchesChecker.check(&ctx);
         assert_eq!(findings.len(), 1);
         assert!(findings[0].id.starts_with("zombie-branches.stale:mid"));
+        // 标题阈值随配置走（曾硬编码「90 天」，与 evidence 的 45 天自相矛盾）
+        assert!(findings[0].title.contains("30 天"), "{}", findings[0].title);
     }
 
     // ===== 不命中 =====

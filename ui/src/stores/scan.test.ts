@@ -12,7 +12,7 @@
  */
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import type { Finding, HistoryEntry, ScanReport, ScanConfig, Severity } from '../types/models'
+import type { Finding, HistoryEntry, RepoSnapshot, ScanReport, ScanConfig, Severity } from '../types/models'
 import {
   HISTORY_MAX,
   loadConfig,
@@ -612,5 +612,42 @@ describe('扫描防重入', () => {
     await store.startRemoteScan('https://example.com/u/r.git')
     expect(ipc.startRemoteScan).not.toHaveBeenCalled()
     expect(store.remoteUrl).toBeNull()
+  })
+})
+
+describe('仓库快照竞态', () => {
+  function makeSnapshot(path: string): RepoSnapshot {
+    return {
+      path,
+      branchCount: 1,
+      branches: ['main'],
+      commitCount: 0,
+      recentCommits: [],
+      fileCount: 0,
+      totalBytes: 0,
+      depManifests: [],
+    }
+  }
+
+  it('fetchRepoInfo_快速切换仓库_过期快照不回填', async () => {
+    const store = await freshStore()
+    let resolveA!: (v: RepoSnapshot) => void
+    const snapB = makeSnapshot('/repos/b')
+    ;(ipc.repoInfo as Mock).mockImplementation((p: string) =>
+      p === '/repos/a'
+        ? new Promise<RepoSnapshot>((r) => (resolveA = r))
+        : Promise.resolve(snapB),
+    )
+    ;(ipc.scanEstimate as Mock).mockResolvedValue(null)
+
+    void store.fetchRepoInfo('/repos/a') // A 慢 IO 挂起
+    await store.fetchRepoInfo('/repos/b') // B 快 IO 先回
+    expect(store.repoInfo?.path).toBe('/repos/b')
+
+    resolveA(makeSnapshot('/repos/a')) // A 的慢返回此刻才到
+    await Promise.resolve()
+    await Promise.resolve()
+    // 过期快照必须被丢弃：不能把「路径 B、快照 A」的错位组合盖到界面上
+    expect(store.repoInfo?.path).toBe('/repos/b')
   })
 })
