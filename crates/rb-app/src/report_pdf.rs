@@ -184,7 +184,7 @@ fn report_to_typst(report: &ScanReportDto, family: &str) -> String {
     s.push_str("#set par(justify: true, leading: 0.62em)\n");
     s.push_str(&format!(
         "#set document(title: \"仓衡扫描报告 · {}\", author: \"RepoBalance\")\n",
-        esc(&report.repo_path)
+        breakable(&esc(&report.repo_path))
     ));
 
     // 严重度配色（与界面主题一致的打印友好版）与文案
@@ -198,18 +198,21 @@ fn report_to_typst(report: &ScanReportDto, family: &str) -> String {
             "  (severity: \"{}\", id: \"{}\", category: \"{}\", title: \"{}\", \
              evidence: \"{}\", suggestion: \"{}\"),\n",
             esc(severity_key(&f.severity)),
-            esc(&f.id),
+            breakable(&esc(&f.id)),
             esc(category_cn(&f.category)),
-            esc(&f.title),
-            esc(&f.evidence),
-            esc(&f.suggestion),
+            breakable(&esc(&f.title)),
+            breakable(&esc(&f.evidence)),
+            breakable(&esc(&f.suggestion)),
         ));
     }
     s.push_str(")\n");
 
     // 覆盖范围（受限扫描如实标注）
     match &report.scope_note {
-        Some(note) => s.push_str(&format!("#let scope-note = \"{}\"\n", esc(note))),
+        Some(note) => s.push_str(&format!(
+            "#let scope-note = \"{}\"\n",
+            breakable(&esc(note))
+        )),
         None => s.push_str("#let scope-note = none\n"),
     }
 
@@ -238,7 +241,7 @@ fn report_to_typst(report: &ScanReportDto, family: &str) -> String {
             ")\n",
             "#v(2mm)\n"
         ),
-        esc(&report.repo_path),
+        breakable(&esc(&report.repo_path)),
         fmt_utc(report.started_at),
         esc(&report.engine_version),
         report.duration_ms,
@@ -413,6 +416,34 @@ fn esc(s: &str) -> String {
     out
 }
 
+/// typst 只在空格与少数 URL 字符（`/ : ? & =` 等）处提供断行机会，不含这些
+/// 字符的连续长 token（无斜杠长域名、JWT、长哈希、深路径段）会把 A4 页面
+/// 撑出页边。这里兜底：连续不可断段超过 [`BREAKABLE_LIMIT`] 时插入零宽空格
+/// U+200B 作为可断点；典型 URL（含 `/` 等内置断点）不会被改动。
+const BREAKABLE_LIMIT: usize = 60;
+
+fn breakable(s: &str) -> String {
+    // typst 自身可断的字符（超出此集合的连续段才需要兜底断点）
+    const BUILT_IN: &[char] = &[
+        '/', ':', '?', '&', '=', '#', '@', '~', '-', '_', '.', ',', ';', '%',
+    ];
+    let mut out = String::with_capacity(s.len());
+    let mut run = 0usize;
+    for c in s.chars() {
+        out.push(c);
+        if c.is_whitespace() || BUILT_IN.contains(&c) {
+            run = 0;
+        } else {
+            run += 1;
+            if run >= BREAKABLE_LIMIT {
+                out.push('\u{200b}');
+                run = 0;
+            }
+        }
+    }
+    out
+}
+
 /// Unix 秒 → `YYYY-MM-DD HH:MM UTC`（报告头明确标注 UTC 口径，不做时区猜测）。
 fn fmt_utc(epoch_secs: i64) -> String {
     let days = epoch_secs.div_euclid(86_400);
@@ -551,6 +582,37 @@ mod tests {
                 // 仅当环境缺 CJK 字体时允许走到这里（CI 已安装 fonts-noto-cjk）
                 assert!(msg.contains("中文字体"), "意外的错误: {msg}");
             }
+        }
+    }
+
+    /// 断点兜底：典型 URL（含 `/` 等内置断点字符）原样保留；
+    /// 无断点长 token 插零宽空格且不丢失字符。
+    #[test]
+    fn 断点兜底_典型url不动_超长无断点token插零宽空格() {
+        let url = "https://atomgit.com/dickeryang/repo-balance.git";
+        assert_eq!(breakable(url), url);
+        let long = "a".repeat(180);
+        let out = breakable(&long);
+        // 60 / 120 / 180 三处各插一个
+        assert_eq!(out.matches('\u{200b}').count(), 3, "{out}");
+        let stripped: String = out.chars().filter(|c| *c != '\u{200b}').collect();
+        assert_eq!(stripped, long, "插入断点不得丢失字符");
+    }
+
+    /// 远程体检报告（repo_path 为 URL、临时目录是实现细节）可导出 PDF，
+    /// URL 完整进入模板（title 与信息表）。
+    #[test]
+    fn pdf_导出_远程_url_报告可导出() {
+        let mut report = fixture();
+        report.repo_path = "https://example.com/dickeryang/repo.git?token=abc&ref=main".to_owned();
+        let src = report_to_typst(&report, "PingFang SC");
+        assert!(
+            src.contains("https://example.com/dickeryang/repo.git?token=abc&ref=main"),
+            "{src}"
+        );
+        match report_to_pdf(&report) {
+            Ok(bytes) => assert!(bytes.starts_with(b"%PDF")),
+            Err(msg) => panic!("远程 URL 报告应可导出: {msg}"),
         }
     }
 }

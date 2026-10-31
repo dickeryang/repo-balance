@@ -1028,7 +1028,7 @@ body {{ background:#0f1420; color:#e6ebf5; font-family:-apple-system,"PingFang S
 .container {{ max-width:960px; margin:0 auto; }}
 h1 {{ font-size:24px; margin-bottom:8px; }}
 h2 {{ font-size:18px; margin:24px 0 12px; }}
-.meta {{ color:#8b95ab; font-size:13px; margin-bottom:20px; }}
+.meta {{ color:#8b95ab; font-size:13px; margin-bottom:20px; word-break:break-all; }}
 .report-head {{ display:flex; gap:20px; margin-bottom:24px; }}
 .score-card {{ background:#171e2e; border:1px solid #2a3550; border-radius:12px; padding:22px; width:240px; text-align:center; flex-shrink:0; }}
 .score-big {{ font-size:64px; font-weight:800; line-height:1.1; }}
@@ -1309,6 +1309,41 @@ mod tests {
         let html = super::report_to_html(&report);
         assert!(html.contains("class=\"scope-note\""), "缺少范围提示块");
         assert!(html.contains("最新 10 个提交"), "缺少范围文案");
+    }
+
+    /// 远程体检报告导出：`repo_path` 为 URL（临时目录是实现细节），
+    /// Markdown / HTML 导出必须原样呈现 URL 并保持 HTML 转义。
+    #[test]
+    fn 导出_远程_url仓库_路径以url呈现且转义正确() {
+        let report = crate::dto::ScanReportDto::from(rb_core::model::report::ScanReport {
+            repo_path: "https://example.com/dickeryang/repo.git?token=abc&ref=main".into(),
+            findings: Vec::new(),
+            scores: rb_core::model::report::Scores {
+                structure: Some(100),
+                history: Some(100),
+                branches: Some(100),
+                deps: Some(100),
+                security: Some(100),
+            },
+            started_at: 1,
+            duration_ms: 2,
+            checker_timings: Vec::new(),
+            engine_version: "0.1.0".into(),
+        });
+
+        let md = super::report_to_markdown(&report);
+        assert!(
+            md.contains("https://example.com/dickeryang/repo.git?token=abc&ref=main"),
+            "{md}"
+        );
+
+        let html = super::report_to_html(&report);
+        // & 必须转义为实体，query 串不得破坏 HTML 结构；URL 本体完整保留
+        assert!(
+            html.contains("https://example.com/dickeryang/repo.git?token=abc&amp;ref=main"),
+            "{html}"
+        );
+        assert!(!html.contains("?token=abc&ref=main</"), "存在未转义的 &");
     }
 
     /// 试算：内置默认与用户规则共同决定结果，字节数同步统计。

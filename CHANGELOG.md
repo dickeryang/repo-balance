@@ -19,6 +19,7 @@
   - 中文字体取**系统 CJK 字体**（macOS 苹方 / Windows 微软雅黑·黑体·宋体 / Linux Noto CJK·文泉驿），不随安装包分发、导出全程离线；全部缺失时报错并给出各平台安装指引
   - 雷达图为 **typst 原生 polygon 绘制**而非嵌 SVG：svg2pdf 未启用 `text` feature 会静默丢弃 SVG 文本，原生绘制才可靠
   - 生成时间如实标注 UTC；总分为已覆盖维度平均（全 N/A 显示 N/A），与界面同口径
+  - **远程体检报告（`repo_path` 为 URL）同样可导出**：HTML 导出的仓库路径行补 `word-break` 断行；PDF 对无内置断点的超长 token（无斜杠长域名、长哈希等，typst 只在 `/ : ? & =` 等字符处断行）在 60 字符处插零宽空格兜底，避免撑出 A4 页边；新增远程 URL 报告的导出测试（Markdown / HTML 转义 / PDF）
   - 前端导出失败**不再静默**：IPC 错误传播到界面以消息提示（含缺字体指引）；依赖树新增 typst（编译时间与体积相应增加，含内嵌基础拉丁 / emoji 字体），`deny.toml` 白名单补 `BSD-2-Clause`（arrayref、kamadak-exif）；CI Linux 门禁安装 `fonts-noto-cjk` 保证测试字体确定性
 - **官方 GitHub Action（其它仓库一行接入体检）**：`uses: dickeryang/repo-balance@v0`
   - composite action 下载 Release 内预编译 CLI（darwin-universal / linux-x64 / windows-x64），**本地扫描零上传**；存在 Critical 结论时任务失败（`fail-on: never` 可只报告不拦截），输出 `total-score` / `critical-count` / `conclusion` 供自定义门禁，JSON 报告默认上传 artifact
