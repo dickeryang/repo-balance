@@ -31,7 +31,8 @@ const { theme, toggleTheme } = useTheme()
     <el-button size="small" round @click="toggleLocale">
       {{ t('app.langToggle') }}
     </el-button>
-    <el-button v-if="store.selectedPath" size="small" round @click="store.switchRepo()">
+    <!-- 远程体检没有 selectedPath（目标是 URL），顶栏同样要有更换仓库入口 -->
+    <el-button v-if="store.selectedPath || store.remoteUrl" size="small" round @click="store.switchRepo()">
       {{ t('app.switchRepo') }}
     </el-button>
     <!-- 扫描中可从任意页面跳回进度视图：否则进了历史 / 设置就回不到进度了 -->

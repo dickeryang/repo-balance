@@ -10,8 +10,9 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <!-- 错误卡片必须独立于「是否已选仓库」渲染：远程体检失败时 selectedPath 为空，
-       若按旧写法只在选过仓库时显示错误，用户只会看到「回到接入页」而不知失败原因。 -->
+  <!-- 错误卡片与接入入口并列渲染：远程体检失败后（repoError 非空）用户仍能
+       直接改 URL 重试或改选本地目录，而不是只看到一张错误卡、必须先点
+       「回到接入页」才能找回输入框。 -->
   <div v-if="store.repoError" class="error-card card">
     <div class="error-msg">⚠ {{ store.repoError }}</div>
     <div class="error-actions">
@@ -23,7 +24,7 @@ const { t } = useI18n()
       </button>
     </div>
   </div>
-  <DropZone v-else-if="!store.selectedPath" />
+  <DropZone v-if="!store.selectedPath" />
   <template v-else-if="store.repoInfo">
     <RepoInfoCard />
     <ScaleEstimateCard />

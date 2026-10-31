@@ -400,6 +400,7 @@ export const useScanStore = defineStore('scan', () => {
     remoteUrl.value = null
     report.value = null
     progress.value = null
+    repoError.value = null // 错误态下直接重试：旧错误不残留到下一轮
     // 初始化检查器 feed：按启用列表（空 = 全部）预置待运行行，
     // 扫描开始后由 check 阶段进度事件驱动 running → done。
     checkerFeed.value = freshCheckerFeed()
@@ -427,6 +428,7 @@ export const useScanStore = defineStore('scan', () => {
     remoteUrl.value = url
     report.value = null
     progress.value = null
+    repoError.value = null // 错误态下直接改 URL 重试：旧错误不残留到下一轮
     checkerFeed.value = freshCheckerFeed()
     const token = ++scanToken
     listenScanEvents(token)

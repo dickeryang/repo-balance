@@ -552,4 +552,17 @@ describe('远程体检', () => {
     // 关键回归：远程来源没有 selectedPath，接入页不能再以它为条件隐藏错误卡片。
     expect(store.selectedPath).toBeNull()
   })
+
+  it('远程体检_失败后再次发起_旧错误被清掉不残留', async () => {
+    const store = await freshStore()
+    ;(ipc.startRemoteScan as Mock).mockRejectedValueOnce(new Error('克隆失败'))
+    await store.startRemoteScan('https://example.com/u/r.git')
+    expect(store.repoError).toContain('克隆失败')
+
+    // 用户在错误卡片旁直接改 URL 重试：本轮发起即清旧错误，
+    // 成功后回连接页不会看到上一轮的失败信息
+    await store.startRemoteScan('https://example.com/u/r2.git')
+    expect(store.repoError).toBeNull()
+    expect(store.remoteUrl).toBe('https://example.com/u/r2.git')
+  })
 })
