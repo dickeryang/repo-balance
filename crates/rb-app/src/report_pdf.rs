@@ -386,7 +386,8 @@ fn radar_typst(points: &[crate::dto::RadarPointDto]) -> String {
 
 /// 总分（已覆盖维度平均，四舍五入）；全部 N/A 时为 `None`。
 /// 与前端 `totalOrNullOf` 同口径：区分「0 分」与「无结论」。
-fn total_score(report: &ScanReportDto) -> Option<u8> {
+/// HTML 导出共用本函数，保证三处（界面 / HTML / PDF）同一结论。
+pub(crate) fn total_score(report: &ScanReportDto) -> Option<u8> {
     let covered: Vec<u8> = report.radar_points.iter().filter_map(|p| p.score).collect();
     if covered.is_empty() {
         return None;

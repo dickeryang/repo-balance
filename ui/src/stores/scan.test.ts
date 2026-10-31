@@ -301,13 +301,40 @@ describe('历史载入与写入', () => {
     const store = await freshStore()
     store.history = [makeEntry('a', 1), makeEntry('b', 2)]
 
-    store.deleteHistory('a')
+    await store.deleteHistory('a')
     expect(store.history.map((e) => e.id)).toEqual(['b'])
     expect(ipc.saveScanHistory).toHaveBeenCalledTimes(1)
 
-    store.clearHistory()
+    await store.clearHistory()
     expect(store.history).toEqual([])
     expect(ipc.saveScanHistory).toHaveBeenCalledTimes(2)
+  })
+
+  it('连续删除_两次写盘按调用顺序串行落盘', async () => {
+    // 载入保持写入时的顺序（降序），这里构造降序文件内容模拟真实落盘结果
+    const seeded = [makeEntry('c', 3), makeEntry('b', 2), makeEntry('a', 1)]
+    const loadMock = ipc.loadScanHistory as Mock
+    loadMock.mockResolvedValue(JSON.stringify(seeded))
+    const store = await freshStore()
+    expect(store.history.length).toBe(3)
+
+    // 快速连删两条（不 await）：写盘必须按调用顺序串行执行，
+    // 否则乱序完成会让旧快照后到覆盖新快照，已删条目在下次启动时「复活」
+    store.deleteHistory('c')
+    store.deleteHistory('b')
+    await store.clearHistory()
+
+    expect(ipc.saveScanHistory).toHaveBeenCalledTimes(3)
+    const calls = (ipc.saveScanHistory as Mock).mock.calls as Array<[string]>
+    expect(
+      (JSON.parse(calls[0][0]) as Array<{ id: string }>).map((e) => e.id),
+    ).toEqual(['b', 'a'])
+    expect(
+      (JSON.parse(calls[1][0]) as Array<{ id: string }>).map((e) => e.id),
+    ).toEqual(['a'])
+    expect(
+      (JSON.parse(calls[2][0]) as Array<{ id: string }>).map((e) => e.id),
+    ).toEqual([])
   })
 })
 
@@ -564,5 +591,26 @@ describe('远程体检', () => {
     await store.startRemoteScan('https://example.com/u/r2.git')
     expect(store.repoError).toBeNull()
     expect(store.remoteUrl).toBe('https://example.com/u/r2.git')
+  })
+})
+
+describe('扫描防重入', () => {
+  it('扫描中再次发起_本地与远程都被拒绝', async () => {
+    const store = await freshStore()
+    // 挂起第一轮：模拟后端扫描进行中（远程克隆可能耗时数秒）。
+    // 不 await（promise 永不 settle）；isScanning 在同步段已置位。
+    ;(ipc.startScan as Mock).mockImplementation(() => new Promise(() => {}))
+    void store.startScan('/repos/a')
+    expect(store.isScanning).toBe(true)
+    expect(ipc.startScan).toHaveBeenCalledTimes(1)
+
+    // 本地重复发起：不产生第二次 IPC 调用
+    await store.startScan('/repos/b')
+    expect(ipc.startScan).toHaveBeenCalledTimes(1)
+
+    // 远程同样被拒：不产生调用、不改目标
+    await store.startRemoteScan('https://example.com/u/r.git')
+    expect(ipc.startRemoteScan).not.toHaveBeenCalled()
+    expect(store.remoteUrl).toBeNull()
   })
 })

@@ -294,17 +294,25 @@ export const useScanStore = defineStore('scan', () => {
     return ipc.exportScanHistory(JSON.stringify(history.value, null, 2))
   }
 
+  /** 历史写盘串行链：连续写入（快速连删 / 连存）按调用顺序落盘。
+   * 若并发写盘，乱序完成会让旧快照后到而覆盖新快照（下次启动时已删条目
+   * 「复活」）——与批量扫描串行写盘是同一问题域。 */
+  let persistChain: Promise<void> = Promise.resolve()
+
   /** 把历史写入应用数据目录文件（未载入完成时跳过，避免覆盖已有数据）。 */
-  async function persistHistory(entries: HistoryEntry[]) {
+  function persistHistory(entries: HistoryEntry[]): Promise<void> {
     if (!historyLoaded) {
       console.warn('扫描历史尚未载入完成，本次跳过写入')
-      return
+      return Promise.resolve()
     }
-    try {
-      await ipc.saveScanHistory(JSON.stringify(entries))
-    } catch (e) {
-      console.error('保存扫描历史失败:', e)
-    }
+    const run = persistChain.then(() => ipc.saveScanHistory(JSON.stringify(entries)))
+    persistChain = run.then(
+      () => undefined,
+      (e) => {
+        console.error('保存扫描历史失败:', e)
+      },
+    )
+    return persistChain
   }
 
   /** 应用规模预估给出的建议限制（大仓库一键收敛历史范围）。 */
@@ -395,6 +403,10 @@ export const useScanStore = defineStore('scan', () => {
   }
 
   async function startScan(path: string) {
+    // 防重入：扫描未结束前拒绝再次发起（本地 / 远程 / 批量同一不变量），
+    // 否则两轮扫描的进度事件与取消标志会交叉污染。当前 UI 下接入页在扫描中
+    // 不可见（v-show 隐藏），此防线保证未来新增任何入口都不破坏该前提。
+    if (isScanning.value) return
     isScanning.value = true
     isCancelled.value = false
     remoteUrl.value = null
@@ -419,6 +431,8 @@ export const useScanStore = defineStore('scan', () => {
 
   /** 远程仓库体检：URL 浅克隆到临时目录后扫描（与本地扫描共用事件流）。 */
   async function startRemoteScan(url: string) {
+    // 与 startScan 同一防重入不变量（见上）。
+    if (isScanning.value) return
     isScanning.value = true
     isCancelled.value = false
     // 远程来源没有本地路径：清空本地仓库状态，避免进度页 / 接入页混用两套目标。
@@ -697,17 +711,17 @@ export const useScanStore = defineStore('scan', () => {
     await persistHistory(next)
   }
 
-  /** 删除指定历史条目。 */
-  function deleteHistory(id: string) {
+  /** 删除指定历史条目（返回串行写盘 promise，可 await 确保落盘完成）。 */
+  function deleteHistory(id: string): Promise<void> {
     const next = history.value.filter((e) => e.id !== id)
     history.value = next
-    persistHistory(next)
+    return persistHistory(next)
   }
 
   /** 清空全部历史。 */
-  function clearHistory() {
+  function clearHistory(): Promise<void> {
     history.value = []
-    persistHistory([])
+    return persistHistory([])
   }
 
   /** 对比两条历史：以 baseline 为基准、target 为对照，计算新增/消除/不变发现项。 */

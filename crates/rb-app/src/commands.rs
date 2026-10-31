@@ -769,6 +769,11 @@ fn report_to_markdown(report: &ScanReportDto) -> String {
     let mut md = String::new();
     md.push_str("# 仓衡扫描报告\n\n");
     md.push_str(&format!("**仓库**: {}\n", report.repo_path));
+    // HTML / PDF 均有生成时间，Markdown 补齐同口径（UTC 标注），归档可追溯。
+    md.push_str(&format!(
+        "**生成时间**: {}\n",
+        format_time_utc(report.started_at)
+    ));
     md.push_str(&format!("**引擎版本**: {}\n", report.engine_version));
     md.push_str(&format!("**耗时**: {}ms\n\n", report.duration_ms));
     // 受限扫描必须如实在报告里标注，避免受限结论被当成全量结论。
@@ -958,21 +963,19 @@ fn radar_svg(points: &[crate::dto::RadarPointDto]) -> String {
 ///
 /// 无外部依赖、无外链资源，可独立分享；evidence 经 HTML 转义保持掩码。
 fn report_to_html(report: &ScanReportDto) -> String {
-    let total_score: u8 = {
-        let scores: Vec<u8> = report.radar_points.iter().filter_map(|p| p.score).collect();
-        if scores.is_empty() {
-            0
-        } else {
-            (scores.iter().map(|s| *s as u32).sum::<u32>() / scores.len() as u32) as u8
-        }
+    // 总分口径与界面 / PDF 导出一致（共用 report_pdf::total_score）：
+    // 已覆盖维度平均、四舍五入；全 N/A 显示 N/A 而非 0——「未覆盖」与
+    // 「零分」是两个结论，把前者画成后者会误导读者（评分口径修复的初衷）。
+    let total = crate::report_pdf::total_score(report);
+    let total_class = match total {
+        Some(s) if s >= 80 => "good",
+        Some(s) if s >= 60 => "mid",
+        Some(_) => "bad",
+        None => "na",
     };
-    let total_class = if total_score >= 80 {
-        "good"
-    } else if total_score >= 60 {
-        "mid"
-    } else {
-        "bad"
-    };
+    let total_text = total
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "N/A".to_owned());
 
     let mut dim_bars = String::new();
     for p in &report.radar_points {
@@ -1032,7 +1035,7 @@ h2 {{ font-size:18px; margin:24px 0 12px; }}
 .report-head {{ display:flex; gap:20px; margin-bottom:24px; }}
 .score-card {{ background:#171e2e; border:1px solid #2a3550; border-radius:12px; padding:22px; width:240px; text-align:center; flex-shrink:0; }}
 .score-big {{ font-size:64px; font-weight:800; line-height:1.1; }}
-.score-big.good {{ color:#4fd07a; }} .score-big.mid {{ color:#ffb44d; }} .score-big.bad {{ color:#ff5c6c; }}
+.score-big.good {{ color:#4fd07a; }} .score-big.mid {{ color:#ffb44d; }} .score-big.bad {{ color:#ff5c6c; }} .score-big.na {{ color:#8b95ab; }}
 .score-label {{ color:#8b95ab; font-size:12px; margin-top:4px; }}
 .radar-panel {{ background:#171e2e; border:1px solid #2a3550; border-radius:12px; padding:22px; flex:1; display:flex; gap:16px; align-items:center; }}
 .radar-wrap {{ width:300px; height:300px; flex-shrink:0; }}
@@ -1096,7 +1099,7 @@ footer {{ color:#8b95ab; font-size:12px; text-align:center; margin-top:32px; }}
             .map(|s| format!("<div class=\"scope-note\">⚠ {}</div>", html_escape(s)))
             .unwrap_or_default(),
         total_class,
-        total_score,
+        total_text,
         radar_svg(&report.radar_points),
         dim_bars,
         report.findings.len(),
@@ -1282,6 +1285,52 @@ mod tests {
         assert!(md.contains("⚠ 历史范围"), "{md}");
         assert!(md.contains("最近 30 天"), "{md}");
         assert!(md.contains("未参与本次结论"), "{md}");
+        // 与 HTML / PDF 同口径：Markdown 也携带生成时间（归档可追溯）
+        assert!(md.contains("**生成时间**: "), "{md}");
+    }
+
+    /// HTML 导出总分与界面 / PDF 同口径：全 N/A 显示 N/A（中性灰样式）而非 0，
+    /// 平均分四舍五入而非整数截断。
+    #[test]
+    fn 导出_html_总分na与四舍五入口径() {
+        let all_na = crate::dto::ScanReportDto::from(rb_core::model::report::ScanReport {
+            repo_path: "/tmp/demo".into(),
+            findings: Vec::new(),
+            scores: rb_core::model::report::Scores {
+                structure: None,
+                history: None,
+                branches: None,
+                deps: None,
+                security: None,
+            },
+            started_at: 1,
+            duration_ms: 2,
+            checker_timings: Vec::new(),
+            engine_version: "0.1.0".into(),
+        });
+        let html = super::report_to_html(&all_na);
+        assert!(html.contains("score-big na"), "{html}");
+        assert!(html.contains(">N/A</div>"), "{html}");
+
+        // (90 + 61) / 2 = 75.5 → 四舍五入 76（整数截断实现会得 75）
+        let half = crate::dto::ScanReportDto::from(rb_core::model::report::ScanReport {
+            repo_path: "/tmp/demo".into(),
+            findings: Vec::new(),
+            scores: rb_core::model::report::Scores {
+                structure: Some(90),
+                history: Some(61),
+                branches: None,
+                deps: None,
+                security: None,
+            },
+            started_at: 1,
+            duration_ms: 2,
+            checker_timings: Vec::new(),
+            engine_version: "0.1.0".into(),
+        });
+        let html = super::report_to_html(&half);
+        assert!(html.contains("score-big mid"), "{html}");
+        assert!(html.contains(">76</div>"), "{html}");
     }
 
     /// HTML 导出携带范围说明（自包含报告同样如实标注）。
