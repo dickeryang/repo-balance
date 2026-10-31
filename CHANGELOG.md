@@ -6,7 +6,7 @@
 
 ## [未发布]
 
-对应仓库 `master` 分支。**版本号未定**：检查器体系与评分口径已落地，但 PDF 导出等仍待补齐，待功能完整后再定版打 tag（进度见 [`docs/roadmap.md`](docs/roadmap.md)）。
+对应仓库 `master` 分支。**版本号未定**：检查器体系、评分口径与四格式报告导出（JSON / Markdown / HTML / PDF）已落地，待定版打 tag（进度见 [`docs/roadmap.md`](docs/roadmap.md)）。
 
 ### 安全
 
@@ -15,6 +15,11 @@
 
 ### 新增
 
+- **PDF 导出**：报告页导出行新增 `⬇ PDF`，Rust 侧以 typst 0.13（Apache-2.0，MSRV 1.80）排版 A4 报告：仓库信息表、五维评分表、雷达图与全部结论，evidence 保持掩码
+  - 中文字体取**系统 CJK 字体**（macOS 苹方 / Windows 微软雅黑·黑体·宋体 / Linux Noto CJK·文泉驿），不随安装包分发、导出全程离线；全部缺失时报错并给出各平台安装指引
+  - 雷达图为 **typst 原生 polygon 绘制**而非嵌 SVG：svg2pdf 未启用 `text` feature 会静默丢弃 SVG 文本，原生绘制才可靠
+  - 生成时间如实标注 UTC；总分为已覆盖维度平均（全 N/A 显示 N/A），与界面同口径
+  - 前端导出失败**不再静默**：IPC 错误传播到界面以消息提示（含缺字体指引）；依赖树新增 typst（编译时间与体积相应增加，含内嵌基础拉丁 / emoji 字体），`deny.toml` 白名单补 `BSD-2-Clause`（arrayref、kamadak-exif）；CI Linux 门禁安装 `fonts-noto-cjk` 保证测试字体确定性
 - **官方 GitHub Action（其它仓库一行接入体检）**：`uses: dickeryang/repo-balance@v0`
   - composite action 下载 Release 内预编译 CLI（darwin-universal / linux-x64 / windows-x64），**本地扫描零上传**；存在 Critical 结论时任务失败（`fail-on: never` 可只报告不拦截），输出 `total-score` / `critical-count` / `conclusion` 供自定义门禁，JSON 报告默认上传 artifact
   - 可选 PR 评论：带稳定标记**原位更新**（重复运行不刷屏），展示总分 / 三级计数 / 受限扫描范围与结论列表；fork PR 默认 token 只读时 403 降级为警告，不让体检结论变红

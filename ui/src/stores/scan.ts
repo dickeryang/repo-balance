@@ -603,14 +603,10 @@ export const useScanStore = defineStore('scan', () => {
     }
   }
 
+  /** 导出报告；IPC 失败时抛错由调用方提示（不再吞错静默返回 null）。 */
   async function exportReport(format: string): Promise<string | null> {
     if (!report.value) return null
-    try {
-      return await ipc.exportReport(format, report.value)
-    } catch (e) {
-      console.error('导出失败:', e)
-      return null
-    }
+    return await ipc.exportReport(format, report.value)
   }
 
   function setFilter(filter: string) {

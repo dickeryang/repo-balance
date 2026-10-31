@@ -1,6 +1,7 @@
 mod commands;
 mod dto;
 mod error;
+mod report_pdf;
 mod state;
 
 use commands::{

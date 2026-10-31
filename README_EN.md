@@ -302,7 +302,7 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 - [x] **Commit habits checker** — oversized commits (>50 files Warning / >200 Critical), low-quality message ratio, late-night ratio (per commit timezone)
 - [x] **Dependency health checker** — missing / uncommitted / deleted lockfiles, mixed package managers, plus known-vulnerability findings once an offline advisory index is present (parses 8 manifest/lockfile kinds with cross-ecosystem version matching; falls back to structural checks with no index)
 - [x] **Scoring fix** — dimensions without a checker show N/A instead of 100; the total score averages covered dimensions only
-- [x] **Report export** — JSON / Markdown / HTML (self-contained, inline SVG radar chart)
+- [x] **Report export** — JSON / Markdown / HTML (self-contained, inline SVG radar chart) / PDF (typeset by typst with system CJK fonts)
 - [x] **Scan history** — persisted in `scan-history.json` under the app data directory (legacy localStorage data is migrated automatically); compare two scans (new / resolved findings); import / export as a JSON backup
 - [x] **Ignore rules** — `.repobalance-ignore` with negated rules (`!pattern`); built-in defaults for build output (`target/`, `node_modules/`, …) that can be negated
 - [x] **Ignore rules editor (settings page)** — pick a repository and read / edit its root `.repobalance-ignore` in place; "Dry run" evaluates the unsaved text in memory (built-in defaults + your rules, exactly as the scan does) and reports how many files would be ignored, their share, total size and path samples, while flagging rules that would silently do nothing (empty pattern / backslash / duplicate); saving is atomic, and `rb ignore <path>` validates read-only with the same semantics (syntax and semantics: `docs/ignore-rules.md`, Chinese)
@@ -322,7 +322,7 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 
 ### Next (v0.2 ~ v0.3)
 
-- [ ] **PDF export** (reports contain Chinese text; CJK font embedding needs to be solved)
+- [x] **PDF export** — a PDF button on the report export row; typst 0.13 (Apache-2.0) typesets an A4 report (five-dimension scores + a native-polygon radar chart + all findings, evidence stays masked) using system CJK fonts (bundled with the OS, never fetched from the network); when none is found the error lists per-OS install hints
 
 ### Mid / long term (v0.5 → v1.0)
 

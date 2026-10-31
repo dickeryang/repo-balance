@@ -25,7 +25,8 @@
 | 忽略规则 | ✅ | `.repobalance-ignore` + 否定规则；内置默认忽略 `target/`、`node_modules/` 等构建目录（可 `!` 否定） |
 | 忽略规则编辑器 | ✅ | 设置页选定仓库后直接读写 `.repobalance-ignore`（原子写）；「试算」不落盘求值（口径与扫描同源）并给出被忽略文件数 / 占比 / 体积与样本；静态检查「写了却不会生效」的规则；CLI `rb ignore <path>` 同口径只读校验；见 [`ignore-rules.md`](ignore-rules.md) |
 | 扫描编排 | ✅ | 进度事件（snapshot/workdir/history/check/done，check 逐检查器带 finding 数）、取消、部分报告 |
-| 报告导出 | ✅ | JSON / Markdown / HTML（自包含，内联 SVG 雷达图，evidence 掩码） |
+| 报告导出 | ✅ | JSON / Markdown / HTML（自包含，内联 SVG 雷达图）/ PDF（typst 排版），evidence 掩码 |
+| PDF 导出 | ✅ | typst 0.13（Apache-2.0）排版 A4 报告 + 原生 polygon 雷达图（svg2pdf 无 text feature，不嵌 SVG）；系统 CJK 字体（不随包分发、不联网），缺失时给出各平台安装指引；时间标注 UTC；CI Linux 装 `fonts-noto-cjk` |
 | 大仓库性能闸门 | ✅ | 历史遍历支持「最多 N 个提交」/「最近 N 天」（CLI `--max-commits` / `--since-days`，GUI「历史范围」分组）；受限扫描在 CLI / 报告页 / 导出中如实标注 |
 | 扫描规模预估 | ✅ | `scan_estimate` 返回提交数/文件数/体积（精确）+ 历史对象数与耗时（采样外推）；连接页四档展示并给出建议限制 |
 | 扫描历史与对比 | ✅ | 应用数据目录 `scan-history.json` 持久化（原子写入，旧 localStorage 一次性迁移），新增/消除问题项对比 |
@@ -55,9 +56,8 @@
 
 ### 关键缺口
 
-1. PDF 导出未实现（报告内容含中文，需解决 CJK 字体嵌入，成本高于 JSON / Markdown / HTML）。
-2. 漏洞库索引仍需手工生成：脚本已备且设置页已有 **GUI 导入入口**，但未随安装包分发，也不做联网自动更新（体检链路保持零网络）。
-3. 包管理器清单只到「生成 + 附到 Release」：推送到 brew tap / Scoop bucket / winget-pkgs 需要各自仓库与凭证，由维护者按 [`distribution.md`](distribution.md) 提 PR；未做 macOS 公证与 Windows 代码签名。
+1. 漏洞库索引仍需手工生成：脚本已备且设置页已有 **GUI 导入入口**，但未随安装包分发，也不做联网自动更新（体检链路保持零网络）。
+2. 包管理器清单只到「生成 + 附到 Release」：推送到 brew tap / Scoop bucket / winget-pkgs 需要各自仓库与凭证，由维护者按 [`distribution.md`](distribution.md) 提 PR；未做 macOS 公证与 Windows 代码签名。
 
 ---
 
@@ -199,6 +199,12 @@
   - 单次扫描两用：`--json` 模式同样以退出码 2 反映 Critical，报告与门禁不扫两遍；输出 `total-score` / `critical-count` / `conclusion` 供自定义门禁；
   - fork PR 的默认 token 只读，评论 403 降级为警告，不让体检结论变红；
   - 配套 GitLab CI 模板与 pre-commit hook **未做**（`docs/ci-integration.md` 的通用 Shell 示例可替代，待真实需求出现再补）。
+- [x] **PDF 导出** ✅ 已于 2026-10-31 落地
+  - typst 0.13（Apache-2.0，MSRV 1.80）排版 A4 报告：信息表、五维评分表、原生 polygon 雷达图与全部结论（evidence 保持掩码）；
+  - 中文字体取系统 CJK 字体（macOS 苹方 / Windows 微软雅黑等 / Linux Noto CJK·文泉驿），不随安装包分发、导出全程离线；全缺失时报错并给出各平台安装指引；
+  - **雷达图用 typst 原生 polygon 绘制而非嵌 SVG**：svg2pdf 未启用 `text` feature 会静默丢弃 SVG 文本；
+  - 生成时间如实标注 UTC；总分与界面同口径（已覆盖维度平均，全 N/A 显示 N/A）；
+  - 前端导出失败由静默改为消息提示；CI Linux 门禁安装 `fonts-noto-cjk` 保证测试字体确定性。
 - [ ] **检查器插件机制（WASM 沙箱）**
   - 基于 wasmtime / extism，允许第三方以任意语言编写检查器；
   - **优先 WASM 而非动态库（dylib）**：沙箱隔离、跨平台、无 ABI 兼容负担。

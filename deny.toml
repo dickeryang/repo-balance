@@ -42,6 +42,9 @@ allow = [
     "MIT",
     "MIT-0",
     "BSD-3-Clause",
+    # BSD-2-Clause 与 BSD-3-Clause 同族（少一条非背书条款），同为宽松许可；
+    # 依赖树中来自 typst PDF 导出链（arrayref、kamadak-exif）
+    "BSD-2-Clause",
     "ISC",
     "Zlib",
     "Unicode-3.0",

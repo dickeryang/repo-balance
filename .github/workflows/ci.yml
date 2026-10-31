@@ -62,7 +62,8 @@ jobs:
             librsvg2-dev \
             libxdo-dev \
             libssl-dev \
-            patchelf
+            patchelf \
+            fonts-noto-cjk
 
       - name: 格式检查（rustfmt）
         run: cargo fmt --all -- --check

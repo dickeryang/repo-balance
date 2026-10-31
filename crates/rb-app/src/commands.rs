@@ -729,15 +729,17 @@ pub async fn export_report(
     format: String,
     report: ScanReportDto,
 ) -> Result<Option<String>, String> {
-    let (content, ext, filter_name) = match format.as_str() {
+    let (content, ext, filter_name): (Vec<u8>, &str, &str) = match format.as_str() {
         "json" => (
-            serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?,
+            serde_json::to_vec_pretty(&report).map_err(|e| e.to_string())?,
             "json",
             "JSON",
         ),
-        "md" => (report_to_markdown(&report), "md", "Markdown"),
-        "html" => (report_to_html(&report), "html", "HTML"),
-        _ => return Err("不支持的导出格式，仅支持 md、json 或 html".to_owned()),
+        "md" => (report_to_markdown(&report).into_bytes(), "md", "Markdown"),
+        "html" => (report_to_html(&report).into_bytes(), "html", "HTML"),
+        // PDF 由 typst 本地排版生成：字体取自系统（不随包分发），缺失时报明确错误
+        "pdf" => (crate::report_pdf::report_to_pdf(&report)?, "pdf", "PDF"),
+        _ => return Err("不支持的导出格式，仅支持 pdf、md、json 或 html".to_owned()),
     };
 
     let (tx, rx) = oneshot::channel();
@@ -805,7 +807,7 @@ fn report_to_markdown(report: &ScanReportDto) -> String {
 }
 
 /// 严重程度的中文文案（与前端展示口径一致）。
-fn severity_cn(severity: &rb_core::model::finding::Severity) -> &'static str {
+pub(crate) fn severity_cn(severity: &rb_core::model::finding::Severity) -> &'static str {
     use rb_core::model::finding::Severity;
     match severity {
         Severity::Critical => "严重",
@@ -814,8 +816,18 @@ fn severity_cn(severity: &rb_core::model::finding::Severity) -> &'static str {
     }
 }
 
+/// 严重程度的英文键（模板字典键，与前端 CSS 语义一致）。
+pub(crate) fn severity_key(severity: &rb_core::model::finding::Severity) -> &'static str {
+    use rb_core::model::finding::Severity;
+    match severity {
+        Severity::Critical => "critical",
+        Severity::Warning => "warning",
+        Severity::Info => "info",
+    }
+}
+
 /// 检查维度的中文文案（与前端展示口径一致）。
-fn category_cn(category: &rb_core::model::finding::Category) -> &'static str {
+pub(crate) fn category_cn(category: &rb_core::model::finding::Category) -> &'static str {
     use rb_core::model::finding::Category;
     match category {
         Category::Structure => "结构",

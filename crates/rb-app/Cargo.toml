@@ -26,3 +26,5 @@ tauri-plugin-dialog.workspace = true
 tauri-plugin-updater.workspace = true
 tauri-plugin-process.workspace = true
 tokio = { version = "1", features = ["sync"] }
+typst = "0.13"
+typst-pdf = "0.13"

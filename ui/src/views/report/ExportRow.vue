@@ -7,9 +7,13 @@ const store = useScanStore()
 const { t } = useI18n()
 
 async function doExport(format: string) {
-  const result = await store.exportReport(format)
-  if (result) {
-    ElMessage.success(`${t('report.exported')} ${result.split(/[\\/]/).pop()}`)
+  try {
+    const result = await store.exportReport(format)
+    if (result) {
+      ElMessage.success(`${t('report.exported')} ${result.split(/[\\/]/).pop()}`)
+    }
+  } catch (e) {
+    ElMessage.error(`${t('report.exportFailed')}: ${String(e)}`)
   }
 }
 </script>
@@ -20,6 +24,7 @@ async function doExport(format: string) {
     <el-button size="small" @click="doExport('html')">⬇ HTML</el-button>
     <el-button size="small" @click="doExport('md')">⬇ Markdown</el-button>
     <el-button size="small" @click="doExport('json')">⬇ JSON</el-button>
+    <el-button size="small" @click="doExport('pdf')">⬇ PDF</el-button>
   </div>
 </template>
 
