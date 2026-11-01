@@ -157,7 +157,13 @@ export function useUpdater(overrides: Partial<UpdaterDeps> = {}) {
 
   /** 下载并安装；失败保留句柄与版本信息，允许原地重试。 */
   async function installNow() {
-    if (!handle || phase.value === 'downloading') return
+    // 安装已成功但重启失败（如权限 / 签名拦截）的「重试」：此时没有下载
+    // 句柄可重装，直接再次重启——否则按钮点击毫无反馈（死状态）。
+    if (!handle) {
+      if (phase.value === 'ready' || phase.value === 'error') return restartNow()
+      return
+    }
+    if (phase.value === 'downloading') return
     received.value = 0
     total.value = null
     error.value = ''

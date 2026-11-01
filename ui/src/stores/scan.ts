@@ -91,16 +91,10 @@ export function repoNameOf(path: string): string {
   return seg || trimmed
 }
 
-export function totalScoreOf(report: ScanReport): number {
-  const scores = report.radarPoints.map((p) => p.score).filter((s): s is number => s !== null)
-  if (scores.length === 0) return 0
-  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-}
-
 /**
  * 总分（已覆盖维度平均），全部维度未覆盖时返回 null。
  *
- * 与 totalScoreOf 的差异：趋势图必须区分「0 分」与「无结论」，否则会把
+ * 历史列表 / 趋势图 / 对比面板共用：必须区分「0 分」与「无结论」，否则会把
  * N/A 画成断崖下跌（诚信口径：未覆盖维度不参与、不伪造）。
  */
 export function totalOrNullOf(report: ScanReport): number | null {
@@ -742,7 +736,7 @@ export const useScanStore = defineStore('scan', () => {
       savedAt: Date.now(),
       repoPath: r.repoPath,
       repoName: repoNameOf(r.repoPath),
-      totalScore: totalScoreOf(r),
+      totalScore: totalOrNullOf(r),
       findingCount: r.findings.length,
       report: r,
     }
@@ -769,6 +763,10 @@ export const useScanStore = defineStore('scan', () => {
     const baseline = history.value.find((e) => e.id === idA)
     const target = history.value.find((e) => e.id === idB)
     if (!baseline || !target) return null
+    // 跨仓库不可对比：findings 按 id 做集合差会把「另一个仓库本来就没有」
+    // 误报成「已消除」，分数差也不是同一仓库的演进。UI 已禁止配对，
+    // 这里再兜一层防止其它入口绕过。
+    if (baseline.repoPath !== target.repoPath) return null
     const baselineIds = new Set(baseline.report.findings.map((f) => f.id))
     const targetIds = new Set(target.report.findings.map((f) => f.id))
     const addedFindings: Finding[] = []
@@ -781,7 +779,11 @@ export const useScanStore = defineStore('scan', () => {
     return {
       baseline,
       target,
-      scoreDelta: target.totalScore - baseline.totalScore,
+      // 任一侧无结论（全 N/A）时差值为 null：0 分参与差值会伪造「跌了很多」
+      scoreDelta:
+        baseline.totalScore === null || target.totalScore === null
+          ? null
+          : target.totalScore - baseline.totalScore,
       findingCountDelta: target.findingCount - baseline.findingCount,
       addedFindings,
       resolvedFindings,

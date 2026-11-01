@@ -98,10 +98,12 @@ fn oversized_findings(
             category: Category::History,
             title: format!("超大提交（引入 {files} 个文件）: {}", c.summary),
             evidence: format!(
-                "提交: {}\n说明: {}\n时间: {}\n引入文件数: {files}（阈值 {threshold}）",
+                "提交: {}\n说明: {}\n时间: {}\n引入文件数: {files}（阈值 {threshold}）\n\
+                 范围: 仅最近 {} 个提交（更早提交不参与该规则）",
                 short_hash(&c.id),
                 c.summary,
-                format_utc(c.time)
+                format_utc(c.time),
+                recent.len()
             ),
             suggestion: "拆分该提交：用 git add -p 交互式暂存把无关改动分到多个提交；确需整体提交的（如代码生成）可在 .repobalance-ignore 忽略对应路径".to_owned(),
         });
@@ -312,6 +314,12 @@ mod tests {
         assert_eq!(findings[0].severity, Severity::Warning);
         assert!(findings[0].id.starts_with("commit-habits.oversized:"));
         assert!(findings[0].suggestion.contains("git add -p"));
+        // 样本窗口如实标注：该规则只对最近 20 个提交判定，沉默不等于「历史里没有」
+        assert!(
+            findings[0].evidence.contains("仅最近 1 个提交"),
+            "{}",
+            findings[0].evidence
+        );
 
         let snap = RepoSnapshot {
             recent_commits: commits(1, &["huge"]),

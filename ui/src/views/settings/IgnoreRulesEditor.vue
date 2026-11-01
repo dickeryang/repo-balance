@@ -149,8 +149,24 @@ function lintText(lint: IgnoreLint): string {
     .replace('{why}', () => t(`ignore.lint.${lint.kind}`))
 }
 
-// 接入页换了仓库时跟随（有未保存修改则由 followStoreRepo 拦下并提示）。
-watch(() => store.selectedPath, followStoreRepo)
+// 接入页换了仓库时跟随，但仅在设置页可见时弹「丢弃修改」确认——设置页隐藏
+// 时（用户已回接入页换仓库）弹模态会阻断换仓库流程，且用户看不到被讨论的
+// 编辑器内容；此时静默保留编辑，等下次进入设置页再提示。
+watch(
+  () => store.selectedPath,
+  () => {
+    if (store.currentView !== 6) return
+    void followStoreRepo()
+  },
+)
+
+// 回到设置页时补一次跟随（覆盖「在接入页换仓库后返回设置页」的场景）。
+watch(
+  () => store.currentView,
+  (view) => {
+    if (view === 6) void followStoreRepo()
+  },
+)
 
 onMounted(async () => {
   targetPath.value = store.selectedPath

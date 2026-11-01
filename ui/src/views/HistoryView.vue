@@ -32,10 +32,26 @@ const trendPoints = computed(() =>
   activeTrendRepo.value ? store.trendSeries(activeTrendRepo.value.repoPath) : [],
 )
 
-const compare = computed(() => {
+/** 已选中的基准 / 对照两条（同一条不构成对比）。 */
+const selectedPair = computed(() => {
   if (!baselineId.value || !targetId.value) return null
   if (baselineId.value === targetId.value) return null
-  return store.compareHistory(baselineId.value, targetId.value)
+  const base = store.history.find((e) => e.id === baselineId.value)
+  const target = store.history.find((e) => e.id === targetId.value)
+  return base && target ? { base, target } : null
+})
+
+/** 跨仓库配对：findings 集合差会把「另一个仓库本来没有」误报成「已消除」。 */
+const crossRepoSelected = computed(
+  () =>
+    !!selectedPair.value &&
+    selectedPair.value.base.repoPath !== selectedPair.value.target.repoPath,
+)
+
+const compare = computed(() => {
+  const pair = selectedPair.value
+  if (!pair || pair.base.repoPath !== pair.target.repoPath) return null
+  return store.compareHistory(pair.base.id, pair.target.id)
 })
 
 function fmtTime(ms: number): string {
@@ -44,7 +60,8 @@ function fmtTime(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-function scoreColor(score: number): string {
+function scoreColor(score: number | null): string {
+  if (score === null) return 'var(--text-dim)' // 全 N/A：无结论，不是 0 分
   if (score >= 80) return 'var(--ok)'
   if (score >= 60) return 'var(--warning)'
   return 'var(--critical)'
@@ -137,7 +154,7 @@ async function doExport() {
         >
           <div class="row-main">
             <div class="row-score" :style="{ color: scoreColor(entry.totalScore) }">
-              {{ entry.totalScore }}
+              {{ entry.totalScore ?? '—' }}
             </div>
             <div class="row-info">
               <div class="row-name">{{ entry.repoName }}</div>
@@ -184,6 +201,8 @@ async function doExport() {
       <p v-if="trendPoints.length < 2" class="dim need-two">{{ t('history.trendNeedTwo') }}</p>
     </div>
 
+    <p v-if="crossRepoSelected" class="dim cross-repo-hint">{{ t('history.crossRepo') }}</p>
+
     <div v-if="compare" class="card compare-panel">
       <div class="compare-head">
         <h2>{{ t('history.compareResult') }}</h2>
@@ -194,20 +213,27 @@ async function doExport() {
         <div class="summary-item">
           <div class="summary-label">{{ t('history.baseline') }}</div>
           <div class="summary-value">{{ compare.baseline.repoName }}</div>
-          <div class="summary-sub dim">{{ fmtTime(compare.baseline.savedAt) }} · {{ t('history.score') }} {{ compare.baseline.totalScore }}</div>
+          <div class="summary-sub dim">{{ fmtTime(compare.baseline.savedAt) }} · {{ t('history.score') }} {{ compare.baseline.totalScore ?? '—' }}</div>
         </div>
         <div class="summary-arrow">→</div>
         <div class="summary-item">
           <div class="summary-label">{{ t('history.target') }}</div>
           <div class="summary-value">{{ compare.target.repoName }}</div>
-          <div class="summary-sub dim">{{ fmtTime(compare.target.savedAt) }} · {{ t('history.score') }} {{ compare.target.totalScore }}</div>
+          <div class="summary-sub dim">{{ fmtTime(compare.target.savedAt) }} · {{ t('history.score') }} {{ compare.target.totalScore ?? '—' }}</div>
         </div>
       </div>
 
       <div class="delta-row">
-        <div class="delta-box" :class="compare.scoreDelta >= 0 ? 'positive' : 'negative'">
+        <div
+          class="delta-box"
+          :class="
+            compare.scoreDelta === null ? 'neutral' : compare.scoreDelta >= 0 ? 'positive' : 'negative'
+          "
+        >
           <span class="delta-label">{{ t('history.scoreDelta') }}</span>
-          <span class="delta-value">{{ compare.scoreDelta >= 0 ? '+' : '' }}{{ compare.scoreDelta }}</span>
+          <span class="delta-value">
+            {{ compare.scoreDelta === null ? '—' : `${compare.scoreDelta >= 0 ? '+' : ''}${compare.scoreDelta}` }}
+          </span>
         </div>
         <div class="delta-box" :class="compare.findingCountDelta <= 0 ? 'positive' : 'negative'">
           <span class="delta-label">{{ t('history.findingDelta') }}</span>

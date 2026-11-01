@@ -161,6 +161,6 @@ PY
 
 COUNT=$(wc -l < "$OUT" | tr -d ' ')
 SIZE=$(du -h "$OUT" | awk '{print $1}')
-info "已生成: $OUT（$COUNT 条公告，约 $SIZE）"
+info "已生成: ${OUT}（$COUNT 条公告，约 $SIZE）"
 info "桌面端：复制到应用数据目录并命名为 vuln-index.jsonl"
 info "CLI   ：rb scan . --ci --vuln-db $OUT"

@@ -47,7 +47,7 @@ fi
 
 if [[ -n "$OUT" ]]; then
   printf '%s\n' "$BODY" > "$OUT"
-  echo "[release-notes] 已写入 $OUT（$VERSION）" >&2
+  echo "[release-notes] 已写入 ${OUT}（$VERSION）" >&2
 else
   printf '%s\n' "$BODY"
 fi

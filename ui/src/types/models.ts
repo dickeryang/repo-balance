@@ -198,8 +198,8 @@ export interface HistoryEntry {
   repoPath: string
   /** 仓库名（路径末段）。 */
   repoName: string
-  /** 总分（0-100）。 */
-  totalScore: number
+  /** 总分（0-100）；全维度未覆盖时为 null（区分「0 分」与「无结论」）。 */
+  totalScore: number | null
   /** 发现项数量。 */
   findingCount: number
   /** 完整报告快照。 */
@@ -274,8 +274,8 @@ export interface HistoryCompare {
   baseline: HistoryEntry
   /** 对照条目。 */
   target: HistoryEntry
-  /** 总分变化（target - baseline）。 */
-  scoreDelta: number
+  /** 总分变化（target - baseline）；任一侧无结论（全 N/A）时为 null。 */
+  scoreDelta: number | null
   /** 发现项数量变化。 */
   findingCountDelta: number
   /** 新增的发现项（target 中有、baseline 中无，按 id 匹配）。 */

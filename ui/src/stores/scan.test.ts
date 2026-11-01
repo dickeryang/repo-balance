@@ -20,7 +20,6 @@ import {
   parseHistory,
   repoNameOf,
   totalOrNullOf,
-  totalScoreOf,
   useScanStore,
 } from './scan'
 
@@ -231,14 +230,37 @@ describe('视图导航', () => {
 })
 
 describe('评分口径', () => {
-  it('totalScoreOf_全维度N_A时返回0', () => {
-    const report = makeReport('/r/a', { scores: [null, null, null, null, null] })
-    expect(totalScoreOf(report)).toBe(0)
-  })
-
   it('totalOrNullOf_全维度N_A返回null且未覆盖维度不参与平均', () => {
     expect(totalOrNullOf(makeReport('/r/a', { scores: [null, null, null, null, null] }))).toBeNull()
     expect(totalOrNullOf(makeReport('/r/a', { scores: [90, null, 80, null, null] }))).toBe(85)
+  })
+})
+
+describe('历史对比口径', () => {
+  it('compareHistory_同仓库给出差值_跨仓库拒绝', async () => {
+    const store = await freshStore()
+    const a = makeEntry('a', 1, '/repos/same')
+    const b = makeEntry('b', 2, '/repos/same')
+    b.totalScore = 60
+    store.history = [a, b, makeEntry('c', 3, '/repos/other')]
+
+    const same = store.compareHistory('a', 'b')
+    expect(same).not.toBeNull()
+    expect(same!.scoreDelta).toBe(-40)
+    // 跨仓库集合差会把「另一个仓库本来没有」误报成「已消除」，直接拒绝
+    expect(store.compareHistory('a', 'c')).toBeNull()
+  })
+
+  it('compareHistory_任一侧全N_A时差值为null而不按0分计', async () => {
+    const store = await freshStore()
+    const a = makeEntry('a', 1, '/repos/same')
+    a.totalScore = null
+    const b = makeEntry('b', 2, '/repos/same')
+    store.history = [a, b]
+
+    const cmp = store.compareHistory('a', 'b')
+    expect(cmp).not.toBeNull()
+    expect(cmp!.scoreDelta).toBeNull()
   })
 })
 

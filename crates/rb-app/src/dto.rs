@@ -209,7 +209,14 @@ impl ScanConfigDto {
     /// 0 值按「不限」处理——GUI 输入框清空或误填 0 不应导致扫描出空历史。
     pub fn to_core_config(&self, now: i64) -> ScanConfig {
         ScanConfig {
-            big_file_threshold: self.big_file_threshold,
+            // 0 值归一化为默认 1 MiB：清空输入框会让 `size >= 0` 对所有文件
+            // 成立，全仓每个文件变成「大文件」，报告被淹没（与下面 max_commits
+            // / since_days 的 0 值口径一致）。
+            big_file_threshold: if self.big_file_threshold == 0 {
+                1_048_576
+            } else {
+                self.big_file_threshold
+            },
             zombie_branch_days: self.zombie_branch_days,
             max_commits: self.max_commits.filter(|n| *n > 0),
             // 漏洞库由壳层在命令层注入（见 commands.rs），DTO 不参与传输。
@@ -494,6 +501,21 @@ mod tests {
         assert_eq!(history_point.score, None);
         assert_eq!(dto.scores.history, None);
         assert_eq!(dto.scores.structure, Some(80));
+    }
+
+    /// 大文件阈值 0 归一化为默认 1 MiB：清空输入框不应让全仓文件都成「大文件」。
+    #[test]
+    fn to_core_config_大文件阈值0回退默认() {
+        let zero = ScanConfigDto {
+            big_file_threshold: 0,
+            ..ScanConfigDto::default()
+        };
+        assert_eq!(zero.to_core_config(0).big_file_threshold, 1_048_576);
+        let custom = ScanConfigDto {
+            big_file_threshold: 2_048,
+            ..ScanConfigDto::default()
+        };
+        assert_eq!(custom.to_core_config(0).big_file_threshold, 2_048);
     }
 
     /// ScanConfigDto 默认启用全部六个检查器、僵尸分支阈值 90 天、历史不限。

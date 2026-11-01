@@ -20,11 +20,16 @@ const CHECKER_LABEL_KEYS: Record<string, string> = {
 
 const thresholdMiB = computed<number>({
   get: () => Math.round((store.scanConfig.bigFileThreshold / 1_048_576) * 10) / 10,
-  set: (v) =>
+  set: (v) => {
+    const bytes = Math.round(Number(v) * 1_048_576)
+    // 清空 / 非法 / 0 一律回退 1 MiB：阈值为 0 时 `size >= 0` 对所有文件成立，
+    // 全仓每个文件都成「大文件」，整份报告被淹没（与 zombieDays 的兜底同理；
+    // 后端 dto.rs 同样把 0 归一化为默认值，双层防护）。
     store.setScanConfig({
       ...store.scanConfig,
-      bigFileThreshold: Math.max(0, Math.round(v * 1_048_576)),
-    }),
+      bigFileThreshold: Number.isFinite(bytes) && bytes > 0 ? bytes : 1_048_576,
+    })
+  },
 })
 
 const zombieDays = computed<number>({

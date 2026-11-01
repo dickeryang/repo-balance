@@ -55,10 +55,15 @@ impl Checker for ZombieBranchesChecker {
             .map(|b| b.tip_commit.time)
             .max()
             .unwrap_or_default();
-        let threshold_secs = ctx
-            .config()
-            .zombie_branch_days
-            .saturating_mul(DAY_SECS as u64) as i64;
+        // 天文数字（如 1e15 天）经 u64 饱和再 `as i64` 会变成 -1，阈值恒真、
+        // 所有分支被判「超过 -1 天未活跃」；溢出按 i64::MAX 处理（等价不限）。
+        let zombie_days = i64::try_from(ctx.config().zombie_branch_days).unwrap_or(i64::MAX);
+        let threshold_secs = i64::try_from(
+            ctx.config()
+                .zombie_branch_days
+                .saturating_mul(DAY_SECS as u64),
+        )
+        .unwrap_or(i64::MAX);
 
         let mut findings = Vec::new();
         for b in branches {
@@ -71,8 +76,7 @@ impl Checker for ZombieBranchesChecker {
             }
             let age = reference - b.tip_commit.time;
             if age > threshold_secs {
-                let threshold_days = ctx.config().zombie_branch_days as i64;
-                findings.push(stale_finding(b, age / DAY_SECS, threshold_days));
+                findings.push(stale_finding(b, age / DAY_SECS, zombie_days));
                 continue;
             }
             if !b.has_upstream {
@@ -298,6 +302,27 @@ mod tests {
         assert!(findings[0].id.starts_with("zombie-branches.stale:mid"));
         // 标题阈值随配置走（曾硬编码「90 天」，与 evidence 的 45 天自相矛盾）
         assert!(findings[0].title.contains("30 天"), "{}", findings[0].title);
+    }
+
+    /// 天文数字阈值（1e15 天）：阈值换算曾 `as i64` 溢出为 -1，导致所有
+    /// 非当前分支被判「超过 -1 天未活跃」；现溢出按 i64::MAX 处理（等价不限）。
+    #[test]
+    fn 极限阈值_不因溢出误报() {
+        let snap = zero_snapshot();
+        let config = ScanConfig {
+            big_file_threshold: 1_048_576,
+            zombie_branch_days: 1_000_000_000_000_000,
+            ..Default::default()
+        };
+        let ctx = ctx_with(
+            &snap,
+            &config,
+            vec![
+                branch("main", NOW, false, true, true),
+                branch("mid", NOW - 45 * 86_400, false, true, false),
+            ],
+        );
+        assert!(ZombieBranchesChecker.check(&ctx).is_empty());
     }
 
     // ===== 不命中 =====

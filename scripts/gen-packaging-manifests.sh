@@ -53,6 +53,12 @@ DMG="$(pick '_universal\.dmg$')"
 SETUP="$(pick '-setup\.exe$')"
 PORTABLE="$(pick 'portable\.zip$')"
 
+# cask 的 URL 从选中的 DMG 文件名派生（版本号部分换成 cask 变量）：
+# 此前硬编码 _universal.dmg，回退到 aarch64/x64 包时 URL 指向不存在的文件。
+[[ "$DMG" == *"$VERSION"* ]] || die "dmg 文件名 '$DMG' 不含版本号 '$VERSION'，无法生成 cask URL"
+DMG_VER_TAG='#{version}'
+DMG_NAME_TPL="${DMG//$VERSION/$DMG_VER_TAG}"
+
 [[ -n "$DMG" ]] || die "校验和清单里没有 .dmg（macOS 安装包）"
 [[ -n "$SETUP" ]] || die "校验和清单里没有 *-setup.exe（Windows NSIS 安装包）"
 [[ -n "$PORTABLE" ]] || die "校验和清单里没有 *portable.zip（Windows 便携包，供 Scoop 使用）"
@@ -79,7 +85,7 @@ cask "repo-balance" do
   version "$VERSION"
   sha256 "$DMG_SHA"
 
-  url "$BASE_URL/#{version}/RepoBalance_#{version}_universal.dmg",
+  url "$BASE_URL/#{version}/$DMG_NAME_TPL",
       verified: "github.com/$REPO/"
   name "RepoBalance"
   desc "Local-only Git repository health checkup"

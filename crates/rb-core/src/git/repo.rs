@@ -224,10 +224,16 @@ impl GitRepo {
         for f in files {
             let mut content = None;
             if f.size <= per_file_cap && spent < total_budget {
-                if let Ok(bytes) = std::fs::read(&f.abs) {
-                    if !is_binary(&bytes) {
-                        content = Some(String::from_utf8_lossy(&bytes).into_owned());
-                        spent += bytes.len() as u64;
+                // f.size 取自 lstat（不跟随符号链接，等于链接本身长度），而
+                // std::fs::read 会跟随链接读目标——指向大文件的链接可绕过单
+                // 文件上限把整份目标读进内存。读取前用跟随链接的 metadata 复核。
+                let real_size = std::fs::metadata(&f.abs).map(|m| m.len()).unwrap_or(f.size);
+                if real_size <= per_file_cap {
+                    if let Ok(bytes) = std::fs::read(&f.abs) {
+                        if !is_binary(&bytes) {
+                            content = Some(String::from_utf8_lossy(&bytes).into_owned());
+                            spent += bytes.len() as u64;
+                        }
                     }
                 }
             }

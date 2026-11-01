@@ -27,19 +27,19 @@ die() { echo "[bump-version] 错误: $*" >&2; exit 1; }
 info() { echo "[bump-version] $*"; }
 
 [[ -n "$NEW" ]] || die "用法: $0 <版本号> [--dry-run]"
-[[ "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.]+)?$ ]] || die "版本号格式不合法: $NEW（示例 0.5.0 / 1.0.0-rc.1）"
+[[ "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.]+)?$ ]] || die "版本号格式不合法: ${NEW}（示例 0.5.0 / 1.0.0-rc.1）"
 
 # 从 Cargo.toml 读当前版本（唯一事实源），避免猜测
 OLD="$(grep -m1 '^version = "' "$ROOT/Cargo.toml" | sed 's/^version = "\(.*\)"$/\1/')"
 [[ -n "$OLD" ]] || die "无法从 Cargo.toml 读取当前版本"
 if [[ "$OLD" == "$NEW" ]]; then
-  die "版本号已是 $NEW（如需重打请先回退或换号）"
+  die "版本号已是 ${NEW}（如需重打请先回退或换号）"
 fi
 
-# 定点替换：按行首模式定位，只替换前 limit 处
+# 定点替换：按行首模式定位，只替换前 limit 处；check 非空时只校验不写盘
 bump() {
-  local file="$1" pattern="$2" old="$3" new="$4" limit="$5"
-  DRY_MODE="$DRY" python3 - "$ROOT/$file" "$pattern" "$old" "$new" "$limit" <<'PY'
+  local file="$1" pattern="$2" old="$3" new="$4" limit="$5" check="${6:-}"
+  DRY_MODE="${check:+1}${DRY}" python3 - "$ROOT/$file" "$pattern" "$old" "$new" "$limit" <<'PY'
 import os, re, sys
 
 path, pattern, old, new, limit = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5])
@@ -66,14 +66,22 @@ else:
 PY
 }
 
+# 五个目标文件的版本写点（package-lock 根版本在顶层与 packages[""] 两处；
+# 依赖树里可能有同名版本，因此只替换前两处，且锚定旧版本号原文）
+apply_all() {
+  local check="${1:-}"
+  bump "Cargo.toml"                    '^version = "'        "version = \"$OLD\"" "version = \"$NEW\"" 1 "$check"
+  bump "crates/rb-app/tauri.conf.json" '"version": "'        "\"version\": \"$OLD\"" "\"version\": \"$NEW\"" 1 "$check"
+  bump "ui/package.json"               '"version": "'        "\"version\": \"$OLD\"" "\"version\": \"$NEW\"" 1 "$check"
+  bump "ui/package-lock.json"          '"version": "'        "\"version\": \"$OLD\"" "\"version\": \"$NEW\"" 2 "$check"
+  bump "CITATION.cff"                  '^version: "'         "version: \"$OLD\"" "version: \"$NEW\"" 1 "$check"
+}
+
 info "$OLD -> $NEW"
-bump "Cargo.toml"                    '^version = "'        "version = \"$OLD\"" "version = \"$NEW\"" 1
-bump "crates/rb-app/tauri.conf.json" '"version": "'        "\"version\": \"$OLD\"" "\"version\": \"$NEW\"" 1
-bump "ui/package.json"               '"version": "'        "\"version\": \"$OLD\"" "\"version\": \"$NEW\"" 1
-# package-lock.json 的根版本在顶层与 packages[""] 两处；依赖树里可能有同名版本，
-# 因此只替换前两处，且锚定旧版本号原文
-bump "ui/package-lock.json"          '"version": "'        "\"version\": \"$OLD\"" "\"version\": \"$NEW\"" 2
-bump "CITATION.cff"                  '^version: "'         "version: \"$OLD\"" "version: \"$NEW\"" 1
+# 两阶段：先对全部目标做只读校验（任一文件不匹配立即退出，此时尚未写盘），
+# 再统一写入——避免中途失败留下「一半已改、一半未改」的仓库状态。
+apply_all check
+apply_all
 
 if [[ "$DRY" == "--dry-run" ]]; then
   info "dry-run 结束，未写盘"
