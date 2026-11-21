@@ -47,6 +47,12 @@ function validate(rule: CustomRule): string | null {
   if (idCount(rule.id) > 1) return t('rules.errDuplicate')
   if (!rule.title.trim()) return t('rules.errTitle')
   if (!rule.pattern.trim()) return t('rules.errPattern')
+  // 前端校验只是尽力提示：JS RegExp 接受前瞻/反向引用等 Rust `regex` 拒绝的
+  // 语法，最终以后端 `compile_rules` 的口径为准（扫描时会给出可读错误）。
+  // 这里把最常见的 JS 专属构造提前拦下，避免「表单通过、扫描才报错」。
+  if (/\(\?[=!<]/.test(rule.pattern) || /\\[0-9]/.test(rule.pattern)) {
+    return t('rules.errRegexJsOnly')
+  }
   try {
     new RegExp(rule.pattern, rule.ignoreCase ? 'i' : '')
   } catch {

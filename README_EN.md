@@ -293,7 +293,7 @@ Dimensions with no registered checker score `None` (shown as **N/A**) instead of
 > The full roadmap (current state, phase goals, acceptance criteria) lives in [`docs/roadmap.md`](docs/roadmap.md) (Chinese).
 > The list below is a summary only; unimplemented features are never marked as done — documentation never runs ahead of the code.
 
-### Shipped in the current version (v0.1.x)
+### Shipped in the current version
 
 - [x] **All six checkers live** — large files (structure), secrets (security), zombie branches (branches), commit habits (history), dependency health (deps), merge-conflict leftovers (structure): every dimension produces real findings
 - [x] **Merge-conflict leftovers checker** — detects leftover `<<<<<<<` / `=======` / `>>>>>>>` markers in both the worktree and commit history; three false-positive guards (a full marker triple is required, a stop-word allowlist for doc examples, shared ignore rules), and history findings say "usually no action needed" rather than pushing a history rewrite

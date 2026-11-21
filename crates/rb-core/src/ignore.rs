@@ -138,6 +138,9 @@ pub enum IgnoreLintKind {
     Backslash,
     /// 与前面某条规则完全相同：按「最后匹配胜出」语义，前面那条无实际效果。
     Duplicate,
+    /// 模式含空路径段（如 `a//b`）：空段与任何真实路径段都不相等，规则
+    /// 永不生效——同样属于「写了却不会生效」的静默情况。
+    EmptySegment,
 }
 
 /// 单条规则的静态检查结论。
@@ -175,6 +178,8 @@ pub fn lint(text: &str) -> Vec<IgnoreLint> {
         if let Some(pat) = parse_line(trimmed) {
             if pat.segments.is_empty() {
                 push(&mut out, line, trimmed, IgnoreLintKind::EmptyPattern);
+            } else if pat.segments.iter().any(String::is_empty) {
+                push(&mut out, line, trimmed, IgnoreLintKind::EmptySegment);
             }
         }
         if trimmed.contains('\\') {
@@ -195,15 +200,17 @@ impl Pattern {
         if self.dir_only {
             return self.matches_prefix(path_segments);
         }
-        if self.anchored {
-            return glob_match_segments(&self.segments, path_segments);
-        }
-        for start in 0..path_segments.len() {
-            if glob_match_segments(&self.segments, &path_segments[start..]) {
-                return true;
-            }
-        }
-        false
+        // gitignore 语义：不带尾随 `/` 的裸模式（如 `dist`）既匹配同名文件
+        // （等长段），也忽略同名目录下的全部内容（前缀段）。此前只做等长
+        // 匹配，从 .gitignore 抄 `build` / `logs` 这类裸词时目录内容照常
+        // 进扫描，与「gitignore 风格子集」的直觉相反。
+        let file_match = if self.anchored {
+            glob_match_segments(&self.segments, path_segments)
+        } else {
+            (0..path_segments.len())
+                .any(|start| glob_match_segments(&self.segments, &path_segments[start..]))
+        };
+        file_match || self.matches_prefix(path_segments)
     }
 
     fn matches_prefix(&self, path_segments: &[&str]) -> bool {
@@ -358,6 +365,38 @@ mod tests {
         assert!(rule.is_ignored("node_modules/a.js"));
         assert!(rule.is_ignored("node_modules/sub/b.js"));
         assert!(rule.is_ignored("sub/node_modules/a.js"));
+    }
+
+    /// gitignore 语义：不带尾随 `/` 的裸模式既匹配同名文件，也忽略同名目录
+    /// 下的全部内容（此前只做等长匹配，从 .gitignore 抄 `build` / `logs`
+    /// 这类裸词时目录内容照常进扫描）。
+    #[test]
+    fn 裸模式_匹配同名文件与目录内容() {
+        let rule = IgnoreRule::parse("dist");
+        assert!(rule.is_ignored("dist"));
+        assert!(rule.is_ignored("dist/app.js"));
+        assert!(rule.is_ignored("dist/sub/deep/x.js"));
+        assert!(rule.is_ignored("sub/dist/app.js"));
+
+        // 锚定裸模式：只匹配根目录下的同名文件与目录内容
+        let anchored = IgnoreRule::parse("/build");
+        assert!(anchored.is_ignored("build"));
+        assert!(anchored.is_ignored("build/out.o"));
+        assert!(!anchored.is_ignored("sub/build/out.o"));
+
+        // 通配裸模式：同名目录的内容一并忽略（git 对 `*.log` 目录同样成立）
+        let glob = IgnoreRule::parse("*.log");
+        assert!(glob.is_ignored("debug.log/trace.txt"));
+    }
+
+    /// 空段模式（`a//b`）：此前 lint 不标出、解析出的空段永不匹配——静默失效。
+    #[test]
+    fn lint_空段模式被标出() {
+        let lints = lint("a//b\n");
+        assert_eq!(lints.len(), 1, "{lints:?}");
+        assert_eq!(lints[0].kind, IgnoreLintKind::EmptySegment);
+        // 正常规则不误报
+        assert!(lint("/a/b\n").is_empty());
     }
 
     #[test]

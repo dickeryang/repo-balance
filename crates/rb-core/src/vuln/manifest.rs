@@ -93,6 +93,17 @@ pub fn extract_version(raw: &str) -> Option<String> {
     if v.is_empty() || !v.starts_with(|c: char| c.is_ascii_digit()) {
         return None;
     }
+    // 通配尾段（npm `1.x` / `1.2.*`、Cargo `1.*`）：`x` 会被版本比较器当成
+    // 「大于一切数字段」的字符串段——`^4.x` 对区间 `[0, 4.17.21)` 既漏报又
+    // 误报。截断为已知前缀（`1.x` → `1`，缺段补零后即 1.0.0）。
+    let v = {
+        let parts: Vec<&str> = v.split('.').collect();
+        match parts.iter().position(|p| matches!(*p, "x" | "X" | "*")) {
+            Some(0) => return None,
+            Some(i) => parts[..i].join("."),
+            None => v,
+        }
+    };
     Some(v)
 }
 
@@ -310,11 +321,17 @@ fn parse_yarn_lock(content: &str) -> Vec<ParsedDep> {
             current = (!name.is_empty()).then_some(name);
             continue;
         }
-        if let Some(rest) = trimmed.strip_prefix("version ") {
-            let version = rest.trim().trim_matches('"').to_owned();
-            if let (Some(name), Some(version)) = (current.take(), extract_version(&version)) {
-                out.push(ParsedDep { name, version });
-            }
+        // v1 经典格式 `version "1.2.3"`；Yarn Berry（v2+）为 `version: 1.2.3`
+        // （冒号紧随，引号可选）。此前只认 v1，v2 锁文件整个解析为空、静默漏检。
+        let version_value = trimmed
+            .strip_prefix("version ")
+            .or_else(|| trimmed.strip_prefix("version:"))
+            .map(|rest| rest.trim().trim_matches('"').to_owned());
+        if let (Some(name), Some(version)) = (
+            current.take(),
+            version_value.as_deref().and_then(extract_version),
+        ) {
+            out.push(ParsedDep { name, version });
         }
     }
     out
@@ -570,6 +587,46 @@ lodash@^4.17.20:
         assert!(deps
             .iter()
             .any(|d| d.name == "@babel/core" && d.version == "7.23.0"));
+    }
+
+    /// yarn.lock v2（Berry）：版本行是 `version: 1.2.3`（冒号紧随，引号可选）。
+    /// 此前只认 v1 的 `version "…"`，v2 文件解析为空、静默漏检。
+    #[test]
+    fn 解析_yarn_lock_v2() {
+        let content = r#"
+# yarn lockfile v2
+
+"lodash@npm:^4.17.20":
+  version: 4.17.20
+  resolution: "lodash@npm:4.17.20"
+
+"@babel/core@npm:^7":
+  version: "7.23.0"
+  resolution: "@babel/core@npm:7.23.0"
+"#;
+        let deps = parse_dep_file("yarn.lock", Some(content), Ecosystem::JavaScript);
+        assert!(deps
+            .iter()
+            .any(|d| d.name == "lodash" && d.version == "4.17.20"));
+        assert!(deps
+            .iter()
+            .any(|d| d.name == "@babel/core" && d.version == "7.23.0"));
+    }
+
+    /// 通配尾段（npm `1.x` / `1.2.*`）：`x` 若保留会被比较器当成「大于一切
+    /// 数字段」的字符串段，`^4.x` 对 `[0, 4.17.21)` 既漏报又误报；
+    /// 截断为已知前缀（`1.x` → `1`），Cargo `1.*` 行为保持一致。
+    #[test]
+    fn 版本提取_通配尾段截断为前缀() {
+        assert_eq!(extract_version("^4.x"), Some("4".to_owned()));
+        assert_eq!(extract_version("1.X"), Some("1".to_owned()));
+        assert_eq!(extract_version("1.2.*"), Some("1.2".to_owned()));
+        // Cargo 风格通配本来就截断（`*` 不在允许字符集内）
+        assert_eq!(extract_version("1.*"), Some("1".to_owned()));
+        // 精确版本不受影响
+        assert_eq!(extract_version("4.17.15"), Some("4.17.15".to_owned()));
+        // 整段通配无意义
+        assert_eq!(extract_version("*.2"), None);
     }
 
     /// go.mod：单行与块两种写法，忽略 indirect 注释。

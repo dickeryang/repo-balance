@@ -99,5 +99,12 @@ fi
 if ! grep -q "^## \[$NEW\]" "$ROOT/CHANGELOG.md"; then
   info "提醒：CHANGELOG.md 尚无「## [$NEW]」小节——发布正文的来源是它（scripts/release-notes.sh）"
 fi
+# 文档漂移检查：这两处不会随 bump 自动更新，发版前人工核对
+if grep -q "compare/v[0-9.]*\.\.\.HEAD" "$ROOT/CHANGELOG.md"; then
+  info "提醒：CHANGELOG.md 底部的 compare 链接基线仍是旧 tag，发版时请更新为上一版本"
+fi
+if grep -qE "v0\.[0-9]+\.x" "$ROOT/README.md" "$ROOT/README_EN.md"; then
+  info "提醒：README 分节标题仍带具体版本号（如 v0.1.x），已过时请移除版本字样"
+fi
 
 info "完成。后续步骤见 docs/distribution.md「发布检查单」"

@@ -116,18 +116,30 @@ for eco_dir in os.listdir(tmp):
                 # GIT 区间按提交哈希界定，版本比较无意义，跳过
                 if r.get("type") == "GIT":
                     continue
-                introduced = fixed = last = None
+                # OSV 语义：events 中每个 "introduced" 开启一段受影响区间，
+                # 由紧随的 fixed / last_affected 关闭；漏洞修复后再次引入会出现
+                # 多轮 introduced。此前只保留一对且后值覆盖前值：早期受影响
+                # 版本整段丢失，甚至产出 introduced > fixed 的死条目（永不命中）。
+                cur = None
                 for ev in r.get("events") or []:
                     if "introduced" in ev:
-                        introduced = ev["introduced"]
-                    elif "fixed" in ev:
-                        fixed = ev["fixed"]
-                    elif "last_affected" in ev:
-                        last = ev["last_affected"]
-                if introduced == "0":
-                    introduced = None  # "0" 等价于不限下界，省字节
-                if introduced or fixed or last:
-                    ranges.append({"introduced": introduced, "fixed": fixed, "last_affected": last})
+                        if cur is not None:
+                            ranges.append(cur)  # 上一段未关闭（无 fixed）也如实保留
+                        cur = {"introduced": ev["introduced"], "fixed": None, "last_affected": None}
+                    elif "fixed" in ev and cur is not None:
+                        cur["fixed"] = ev["fixed"]
+                    elif "last_affected" in ev and cur is not None:
+                        cur["last_affected"] = ev["last_affected"]
+                if cur is not None:
+                    ranges.append(cur)
+            cleaned = []
+            for rg in ranges:
+                intro = rg["introduced"]
+                if intro == "0":
+                    intro = None  # "0" 等价于不限下界，省字节
+                if intro or rg["fixed"] or rg["last_affected"]:
+                    cleaned.append({"introduced": intro, "fixed": rg["fixed"], "last_affected": rg["last_affected"]})
+            ranges = cleaned
             key = (eco, pkg.lower(), aid)
             rec = records.setdefault(key, {
                 "id": aid,

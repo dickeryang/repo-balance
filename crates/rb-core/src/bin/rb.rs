@@ -546,6 +546,9 @@ fn cmd_ignore(path: &Path) -> ExitCode {
             rb_core::ignore::IgnoreLintKind::EmptyPattern => "不含有效路径段，永不匹配任何文件",
             rb_core::ignore::IgnoreLintKind::Backslash => "使用反斜杠分隔，请改用正斜杠 /",
             rb_core::ignore::IgnoreLintKind::Duplicate => "与前面某条规则重复，前面那条无实际效果",
+            rb_core::ignore::IgnoreLintKind::EmptySegment => {
+                "含空路径段（如 a//b），永不匹配任何文件"
+            }
         };
         eprintln!("第 {} 行 `{}`：{why}", l.line, l.pattern);
     }
