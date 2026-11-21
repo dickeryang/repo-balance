@@ -4,7 +4,7 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [0.5.0] - 2026-11-21
 
 对应仓库 `master` 分支。**版本号未定**：检查器体系、评分口径与四格式报告导出（JSON / Markdown / HTML / PDF）已落地，待定版打 tag（进度见 [`docs/roadmap.md`](docs/roadmap.md)）。
 
@@ -222,5 +222,5 @@
 
 - CSP `default-src 'self'`、权限最小集（无 `fs` / `shell`）、纯本地零网络、evidence 掩码
 
-[未发布]: https://github.com/dickeryang/repo-balance/compare/v0.1.0...HEAD
+[0.5.0]: https://github.com/dickeryang/repo-balance/compare/v0.1.0...v0.5.0
 [0.1.0]: https://github.com/dickeryang/repo-balance/releases/tag/v0.1.0

@@ -3563,7 +3563,7 @@ dependencies = [
 
 [[package]]
 name = "rb-app"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "rb-core",
  "serde",
@@ -3581,7 +3581,7 @@ dependencies = [
 
 [[package]]
 name = "rb-core"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "git2",
  "rayon",
